@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "commentdesk"
+version = "0.1.0"
+description = "Triage social-media comments from a CSV and draft grounded replies for a human to review."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Ab-Romia" }]
+keywords = ["comments", "triage", "moderation", "csv", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Communications",
+  "Topic :: Text Processing :: Filters",
+]
+dependencies = ["openai>=1.40"]
+
+[project.optional-dependencies]
+pdf = ["pymupdf>=1.24"]
+
+[project.scripts]
+commentdesk = "commentdesk.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.6", "pyright>=1.1.380"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/commentdesk"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+extend-select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "TID"]
+ignore = [
+  # Reason: length is a formatting concern and the formatter owns it. Enforcing it
+  # twice only produces awkward wraps in comments that explain a decision.
+  "E501",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["commentdesk"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+reportMissingImports = "error"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+xfail_strict = true
+filterwarnings = ["error"]

@@ -1,0 +1,52 @@
+# Every rule here is by CLASS, not by filename. A by-name rule protects exactly one
+# file, and the second file of the same kind then sits untracked and unignored, one
+# `git add -A` away from the remote.
+
+# Build notes and planning material. Not part of what ships.
+notes/
+plan-sections/
+
+# Secrets. The glob matters: .env.bak and .env.local leak exactly as hard as .env.
+.env
+.env.*
+!.env.example
+*credential*
+*secret*
+*token*.json
+*.pem
+*.key
+
+# Operator material. The source document and the comment exports belong to whoever
+# runs the tool, and a second one must not need a second rule.
+knowledge/
+out/
+*.csv
+*.pdf
+# The shipped examples are fictional and are meant to be read.
+!examples/**/comments.csv
+!tests/fixtures/**/*.csv
+
+# Generated
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+
+# Editors and local tooling.
+.idea/
+.vscode/
+.zed/
+.DS_Store
+Thumbs.db
+# Assistive local tooling drops dotted directories at the repo root. Ignoring the
+# shape rather than the names means a new tool needs no new rule, and none of them
+# can be identified from this file. `.git/info/exclude` would do the same job but
+# never leaves this machine, so a clone would carry them straight back in.
+/.*/
+!/.github/
