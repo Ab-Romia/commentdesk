@@ -309,3 +309,157 @@ def test_load_env_keeps_an_equals_sign_inside_the_value(tmp_path: Path, monkeypa
     load_env(env)
     assert os.environ["COMMENTDESK_PADDED_KEY"] == "abc=def=="
     monkeypatch.delenv("COMMENTDESK_PADDED_KEY")
+
+
+# --- cta_mode ---------------------------------------------------------------
+
+
+def test_cta_mode_must_name_a_defined_table(tmp_path: Path) -> None:
+    text = set_key(MINIMAL_CONFIG_TOML, "cta_mode", '"shouty"')
+    with pytest.raises(ConfigError) as caught:
+        load_config(write(tmp_path, text))
+    message = str(caught.value)
+    assert "shouty" in message
+    # The error is only useful if it says what the operator may write instead.
+    assert "bio_pointer" in message
+    assert "direct" in message
+
+
+def test_cta_mode_error_survives_a_config_with_no_cta_tables(tmp_path: Path) -> None:
+    text = drop_section(MINIMAL_CONFIG_TOML, "[cta.direct]")
+    text = drop_section(text, "[cta.bio_pointer]")
+    with pytest.raises(ConfigError, match="cta"):
+        load_config(write(tmp_path, text))
+
+
+def test_cta_mode_must_be_a_string(tmp_path: Path) -> None:
+    """A list here would blow up on a dict lookup rather than on a config error."""
+    text = set_key(MINIMAL_CONFIG_TOML, "cta_mode", '["direct"]')
+    with pytest.raises(ConfigError, match="cta_mode"):
+        load_config(write(tmp_path, text))
+
+
+def test_selected_cta_table_needs_an_instruction_and_phrases(tmp_path: Path) -> None:
+    text = drop_key(MINIMAL_CONFIG_TOML, "instruction")
+    with pytest.raises(ConfigError, match=r"cta\.direct\.instruction"):
+        load_config(write(tmp_path, text))
+
+
+def test_selected_cta_phrases_must_be_a_non_empty_list(tmp_path: Path) -> None:
+    text = set_key(MINIMAL_CONFIG_TOML, "phrases", "[]")
+    with pytest.raises(ConfigError, match=r"cta\.direct\.phrases"):
+        load_config(write(tmp_path, text))
+
+
+def test_unselected_cta_table_is_not_validated(tmp_path: Path) -> None:
+    """Only the selected mode is rendered, so only it has to be complete.
+
+    An operator drafting a second CTA style must not be blocked by it.
+    """
+    text = MINIMAL_CONFIG_TOML.replace(
+        '[cta.bio_pointer]\ninstruction = "If someone asks where to get it, say the link is in the bio."\n',
+        "[cta.bio_pointer]\n",
+    )
+    cfg = load_config(write(tmp_path, text))
+    assert "instruction" not in cfg["cta"]["bio_pointer"]
+
+
+# --- plug_markers -----------------------------------------------------------
+
+
+def test_plug_markers_is_required(tmp_path: Path) -> None:
+    text = drop_key(MINIMAL_CONFIG_TOML, "plug_markers")
+    with pytest.raises(ConfigError, match="plug_markers"):
+        load_config(write(tmp_path, text))
+
+
+@pytest.mark.parametrize("literal", ["[]", '""', '"in the bio"', '["in the bio", ""]', "[3]"])
+def test_plug_markers_must_be_a_non_empty_list_of_non_empty_strings(
+    tmp_path: Path, literal: str
+) -> None:
+    """The silent-zero-plugs state has to be unreachable, not merely unlikely.
+
+    With no usable markers is_plug answers False for every reply, the report
+    prints a plug count of zero, and plug_cap can never fire. Nothing errors, and
+    the output is indistinguishable from a clean run.
+    """
+    text = set_key(MINIMAL_CONFIG_TOML, "plug_markers", literal)
+    with pytest.raises(ConfigError, match="plug_markers"):
+        load_config(write(tmp_path, text))
+
+
+# --- bot_disclosure_text ----------------------------------------------------
+
+
+@pytest.mark.parametrize("literal", ['""', '"   "', "false"])
+def test_bot_disclosure_text_must_be_a_non_empty_string(tmp_path: Path, literal: str) -> None:
+    text = set_key(MINIMAL_CONFIG_TOML, "bot_disclosure_text", literal)
+    with pytest.raises(ConfigError, match="bot_disclosure_text"):
+        load_config(write(tmp_path, text))
+
+
+def test_bot_disclosure_text_is_required(tmp_path: Path) -> None:
+    text = drop_key(MINIMAL_CONFIG_TOML, "bot_disclosure_text")
+    with pytest.raises(ConfigError, match="bot_disclosure_text"):
+        load_config(write(tmp_path, text))
+
+
+def test_bot_disclosure_has_no_off_switch() -> None:
+    """There is no mode name to configure, because the evasive mode is gone."""
+    from commentdesk import config
+
+    source = Path(config.__file__).read_text(encoding="utf-8")
+    assert "deflect" not in source
+    assert "bot_disclosure_text" in config.REQUIRED["behavior"]
+
+
+# --- separator and banned_emoji ---------------------------------------------
+
+
+def test_separator_is_required_and_non_empty(tmp_path: Path) -> None:
+    text = set_key(MINIMAL_CONFIG_TOML, "separator", '""')
+    with pytest.raises(ConfigError, match="separator"):
+        load_config(write(tmp_path, text))
+
+
+def test_separator_is_stated_never_guessed(tmp_path: Path) -> None:
+    """Any punctuation the operator writes is accepted verbatim.
+
+    The version that inferred a separator from the script of the text defaulted
+    every script it could not measure to one language's comma and injected it
+    into replies written in languages that have no such mark.
+    """
+    text = set_key(MINIMAL_CONFIG_TOML, "separator", '" / "')
+    cfg = load_config(write(tmp_path, text))
+    assert cfg["behavior"]["separator"] == " / "
+
+
+def test_banned_emoji_is_required_but_may_be_empty(tmp_path: Path) -> None:
+    cfg = load_config(write(tmp_path, MINIMAL_CONFIG_TOML))
+    assert cfg["behavior"]["banned_emoji"] == ""
+
+    missing = drop_key(MINIMAL_CONFIG_TOML, "banned_emoji")
+    with pytest.raises(ConfigError, match="banned_emoji"):
+        load_config(write(tmp_path, missing))
+
+
+def test_banned_emoji_must_be_a_string(tmp_path: Path) -> None:
+    """A list of characters is the natural mistake and it silently bans nothing."""
+    text = set_key(MINIMAL_CONFIG_TOML, "banned_emoji", '["a", "b"]')
+    with pytest.raises(ConfigError, match="banned_emoji"):
+        load_config(write(tmp_path, text))
+
+
+# --- paths ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["path", "rules", "examples"])
+def test_operator_file_paths_must_be_non_empty(tmp_path: Path, key: str) -> None:
+    """An empty path resolves to the config directory itself.
+
+    The text source would then concatenate everything sitting next to config.toml
+    into the prompt, which is a wrong answer that never raises.
+    """
+    text = set_key(MINIMAL_CONFIG_TOML, key, '""')
+    with pytest.raises(ConfigError, match=key):
+        load_config(write(tmp_path, text))
