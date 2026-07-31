@@ -31,6 +31,23 @@ class ParseError(Exception):
     """The model answered, but not with a usable decision."""
 
 
+def _string_field(data: dict, key: str) -> str:
+    """Return data[key] as a string, or reject it if present with the wrong type.
+
+    Absent or JSON null means the model omitted the field, which becomes an
+    empty string exactly as before. A present value of the wrong type (a list,
+    a number, an object) is a parse error rather than silently passed through
+    str(), because str() on a non-string turns it into Python's repr of that
+    value, and that repr is what would land in a field a human reads.
+    """
+    value = data.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ParseError(f"bad {key}: {value!r}")
+    return value
+
+
 def parse_response(text: str) -> dict:
     """Extract the one JSON object, tolerating fences and stray prose around it.
 
@@ -51,12 +68,12 @@ def parse_response(text: str) -> dict:
     decision = data.get("decision")
     if decision not in DECISIONS:
         raise ParseError(f"bad decision: {decision!r}")
-    reason = str(data.get("reason") or "").strip()
+    reason = _string_field(data, "reason").strip()
     if not reason:
         # The reason is the only part of the row a reviewer can check against the
         # comment without reading the draft. A row without one is not reviewable.
         raise ParseError("missing reason")
-    reply_text = str(data.get("reply_text") or "").strip()
+    reply_text = _string_field(data, "reply_text").strip()
     if decision == "reply" and not reply_text:
         # Rejected here rather than downstream: a row marked reply with an empty
         # reply cell is the one output a reviewer cannot act on.

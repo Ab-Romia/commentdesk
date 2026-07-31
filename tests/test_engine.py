@@ -38,6 +38,20 @@ def test_parse_response_is_greedy_so_a_nested_object_survives():
     assert out["reason"] == "refund request"
 
 
+def test_parse_response_rejects_two_sibling_top_level_objects():
+    # The same greedy first-brace-to-last-brace match that lets a nested object
+    # survive also spans two sibling objects into one range that is not valid
+    # JSON on its own. Fail closed via a decode error rather than silently
+    # picking either object.
+    text = (
+        '{"decision": "skip", "reason": "first", "reply_text": ""} '
+        "noise "
+        '{"decision": "reply", "reason": "second", "reply_text": "hi"}'
+    )
+    with pytest.raises(ParseError):
+        parse_response(text)
+
+
 def test_parse_response_rejects_an_empty_response():
     with pytest.raises(ParseError):
         parse_response("")
@@ -79,6 +93,29 @@ def test_parse_response_clears_reply_text_on_a_non_reply_decision():
             f'{{"decision": "{decision}", "reason": "r", "reply_text": "stray draft"}}'
         )
         assert out["reply_text"] == ""
+
+
+def test_parse_response_rejects_a_non_string_reason():
+    # A present but wrong typed reason must not be coerced into str()'s Python
+    # repr, since the reason is what a reviewer reads first.
+    with pytest.raises(ParseError):
+        parse_response('{"decision": "skip", "reason": ["a", "b"], "reply_text": ""}')
+    with pytest.raises(ParseError):
+        parse_response('{"decision": "skip", "reason": 42, "reply_text": ""}')
+
+
+def test_parse_response_rejects_a_non_string_reply_text():
+    # Same coercion hazard as reason, but for reply_text: an object here would
+    # otherwise land in the output CSV as a drafted reply reading "{'a': 1}".
+    with pytest.raises(ParseError):
+        parse_response('{"decision": "reply", "reason": "ok", "reply_text": {"a": 1}}')
+
+
+def test_parse_response_missing_reason_is_still_the_missing_reason_error():
+    # An absent field is the model omitting it, not a wrong type. It must keep
+    # raising the existing "missing reason" error, not a new type error.
+    with pytest.raises(ParseError, match="missing reason"):
+        parse_response('{"decision": "skip", "reply_text": ""}')
 
 
 def test_is_retryable_separates_transient_from_permanent():
