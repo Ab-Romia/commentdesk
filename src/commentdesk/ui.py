@@ -47,8 +47,10 @@ def build_state(config_path):
         "cfg": cfg,
         "model_cfg": cfg["model"],
         # Every model the config offers, so a comparison can be run live instead of
-        # quoted from a table. They all share one gateway, so one client serves all
-        # of them and switching models mid session costs no reconnection.
+        # quoted from a table. A bake-off entry may name its own base_url and
+        # api_key_env, which is exactly why comparing across gateways is worth
+        # doing, so get_client keys its cache on the gateway a model actually
+        # names rather than assuming they all share the default's.
         "models": model_options(cfg),
         "voice_text": voice.read_text(encoding="utf-8"),
         "examples_text": examples.read_text(encoding="utf-8"),
@@ -64,7 +66,10 @@ def build_state(config_path):
             "examples": str(examples),
             "knowledge": str(knowledge),
         },
-        "client": None,
+        # Keyed by (base_url, api_key_env) rather than held as one slot, so a
+        # bake-off entry on a different gateway than the default gets its own
+        # client instead of silently reusing the default's.
+        "clients": {},
         "trace": {},
     }
 
@@ -366,40 +371,54 @@ def prompt_json(state):
     )
 
 
-def get_client(state):
-    """The gateway client, built on first use and rebuilt after it is invalidated.
+def get_client(state, model_cfg):
+    """The gateway client for model_cfg, built on first use and cached by gateway.
+
+    Caching per (base_url, api_key_env) rather than as a single slot is what
+    lets a request follow the model actually selected on the page. A bake-off
+    entry may legitimately name a different gateway than the default model,
+    since comparing a model across gateways is itself a reason to run a
+    bake-off, and a single cached client would otherwise send every request
+    through the default's gateway regardless of which model was picked, while
+    still reporting the picked model's name in the trace.
 
     The import is here rather than at module scope so that the tests, and anyone
     reading the page without a key, never need the package or the network.
     """
-    if state.get("client") is None:
-        model_cfg = state["model_cfg"]
-        key = os.environ.get(model_cfg["api_key_env"])
-        if not key:
-            raise ConfigError(f"environment variable {model_cfg['api_key_env']} is not set")
+    key = (model_cfg["base_url"], model_cfg["api_key_env"])
+    clients = state.setdefault("clients", {})
+    if key not in clients:
+        api_key_env = model_cfg["api_key_env"]
+        api_key = os.environ.get(api_key_env)
+        if not api_key:
+            raise ConfigError(f"environment variable {api_key_env} is not set")
         from openai import OpenAI
 
-        state["client"] = OpenAI(base_url=model_cfg["base_url"], api_key=key)
-    return state["client"]
+        clients[key] = OpenAI(base_url=model_cfg["base_url"], api_key=api_key)
+    return clients[key]
 
 
 def apply_reload(state):
-    """Rebuild everything from disk in place, and drop a client that no longer fits.
+    """Rebuild everything from disk in place, keeping only the cached clients whose
+    gateway a model in the fresh config still names.
 
-    A client is bound to the gateway it was built for. Keeping one across a base_url
-    or api_key_env change would report a successful reload and then go on sending the
-    operator's requests, and the operator's key, to the address they just stopped
-    using. Dropping it costs one connection, and the next request builds a matching
-    one. A changed key VALUE in .env is a different matter and still needs a restart:
-    load_env uses setdefault, so whatever is already in the environment wins.
+    A client is bound to the gateway it was built for. Checking only the default
+    model's gateway missed every other one: a bake-off entry naming its own
+    base_url or api_key_env is exactly the case a comparison across gateways
+    exists for, and a client cached under a key none of the fresh models name
+    would otherwise go on serving requests, and spending the operator's key,
+    for a gateway the fresh config no longer offers under that label. Keeping
+    every cached client whose key still matches some fresh model, rather than
+    dropping the whole cache, is what lets the ordinary case, editing the voice
+    file and changing no gateway, reload without paying to reconnect clients
+    that are still correct. A changed key VALUE in .env is a different matter
+    and still needs a restart: load_env uses setdefault, so whatever is already
+    in the environment wins.
     """
     fresh = build_state(state["config_path"])
-    live = state["model_cfg"]
-    same_gateway = (live["base_url"], live["api_key_env"]) == (
-        fresh["model_cfg"]["base_url"],
-        fresh["model_cfg"]["api_key_env"],
-    )
-    fresh["client"] = state.get("client") if same_gateway else None
+    fresh_gateways = {(mc["base_url"], mc["api_key_env"]) for mc in fresh["models"].values()}
+    old_clients = state.get("clients") or {}
+    fresh["clients"] = {key: client for key, client in old_clients.items() if key in fresh_gateways}
     fresh["trace"] = state.get("trace") or {}
     state.clear()
     state.update(fresh)
@@ -443,7 +462,9 @@ class _Handler(BaseHTTPRequestHandler):
             host = raw[1 : raw.find("]")] if "]" in raw else ""
         else:
             host = raw.rsplit(":", 1)[0]
-        if host not in ("127.0.0.1", "localhost", "::1"):
+        # Lowercased because a hostname is case-insensitive: an attacker's page
+        # is free to write "Localhost" and a bare string comparison would miss it.
+        if host.lower() not in ("127.0.0.1", "localhost", "::1"):
             return self._forbid()
         origin = self.headers.get("Origin")
         # No Origin header at all is the ordinary case: a same origin GET sends none.
@@ -506,7 +527,7 @@ class _Handler(BaseHTTPRequestHandler):
             trace = run_one(
                 self.state["cfg"],
                 with_reasoning(model_cfg, reasoning),
-                get_client(self.state),
+                get_client(self.state, model_cfg),
                 self.state["knowledge_text"],
                 self.state["system_text"],
                 comment,

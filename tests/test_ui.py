@@ -62,7 +62,7 @@ def make_state():
             "examples": "/somewhere/prompts/examples.md",
             "knowledge": "/somewhere/knowledge.md",
         },
-        "client": None,
+        "clients": {},
         "trace": {},
     }
 
@@ -181,6 +181,14 @@ def test_a_rebound_hostname_cannot_reach_the_server():
     assert status == 403
 
 
+def test_a_case_varied_localhost_host_header_is_still_accepted():
+    """A hostname is case-insensitive on the wire even though browsers normalize it
+    in practice, so the check must not depend on that normalization happening."""
+    with running(make_state()) as port:
+        status, _ = get(port, "/meta", {"Host": f"LOCALHOST:{port}"})
+    assert status == 200
+
+
 def test_the_operators_own_tab_is_served():
     with running(make_state()) as port:
         status, body = get(port, "/meta")
@@ -195,29 +203,75 @@ def test_the_operators_own_tab_is_served():
         assert json.loads(body)["knowledge_words"] == 4
 
 
-def test_reload_drops_a_client_built_for_another_gateway(monkeypatch):
+def test_reload_drops_a_client_for_a_gateway_the_config_no_longer_names(monkeypatch):
     """Keeping it would report a successful reload and then keep sending the
-    operator's requests, and the operator's key, to the address they just changed."""
+    operator's requests, and the operator's key, to the address they just changed.
+    Clients are cached per gateway, so this has to check every cached one rather
+    than only the default model's, or a bake-off entry on its own gateway would
+    keep a stale client after that gateway was edited away."""
     state = make_state()
-    state["client"] = object()
+    old_key = (state["model_cfg"]["base_url"], state["model_cfg"]["api_key_env"])
+    state["clients"] = {old_key: object()}
     fresh = make_state()
     fresh["model_cfg"] = {**fresh["model_cfg"], "base_url": "https://other.example/v1"}
     fresh["models"] = {"base": fresh["model_cfg"]}
     monkeypatch.setattr(ui, "build_state", lambda path: fresh)
     ui.apply_reload(state)
-    assert state["client"] is None
+    assert state["clients"] == {}
     assert state["model_cfg"]["base_url"] == "https://other.example/v1"
 
 
-def test_reload_keeps_the_client_when_the_gateway_is_unchanged(monkeypatch):
+def test_reload_keeps_a_client_whose_gateway_is_still_configured(monkeypatch):
     """The ordinary case is editing the voice file, and reconnecting for that would
     throw away a live connection for nothing."""
     state = make_state()
     sentinel = object()
-    state["client"] = sentinel
+    key = (state["model_cfg"]["base_url"], state["model_cfg"]["api_key_env"])
+    state["clients"] = {key: sentinel}
     monkeypatch.setattr(ui, "build_state", lambda path: make_state())
     ui.apply_reload(state)
-    assert state["client"] is sentinel
+    assert state["clients"][key] is sentinel
+
+
+def test_get_client_follows_the_selected_models_gateway_not_the_default(monkeypatch):
+    """A bake-off entry can legitimately name a base_url and api_key_env different
+    from the default model, since comparing a model across gateways is itself a
+    reason to run a bake-off. The client used for a request has to be built for
+    the model actually selected, not silently reused from the default's gateway,
+    or the trace would report the selected model's name while the request went
+    out through a different gateway entirely."""
+    built = []
+
+    class FakeClient:
+        def __init__(self, *, base_url, api_key):
+            self.base_url = base_url
+            self.api_key = api_key
+            built.append(self)
+
+    monkeypatch.setattr("openai.OpenAI", FakeClient)
+    monkeypatch.setenv("GATEWAY_KEY", "default-key-value")
+    monkeypatch.setenv("RIVAL_KEY", "rival-key-value")
+
+    state = make_state()
+    rival = {
+        **state["model_cfg"],
+        "label": "rival",
+        "base_url": "https://rival.example/v1",
+        "api_key_env": "RIVAL_KEY",
+    }
+
+    default_client = ui.get_client(state, state["model_cfg"])
+    rival_client = ui.get_client(state, rival)
+
+    assert default_client is not rival_client
+    assert default_client.base_url == "https://gateway.example/api/v1"
+    assert default_client.api_key == "default-key-value"
+    assert rival_client.base_url == "https://rival.example/v1"
+    assert rival_client.api_key == "rival-key-value"
+    # A second call for a model already served reuses the cached client for that
+    # gateway rather than building a second one.
+    assert ui.get_client(state, state["model_cfg"]) is default_client
+    assert len(built) == 2
 
 
 def test_reload_reports_a_broken_config_on_the_page(monkeypatch):
