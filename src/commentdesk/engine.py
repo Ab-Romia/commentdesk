@@ -6,11 +6,16 @@ strings, which are ASCII English machine output. Every word an operator sees
 comes from their own configuration and their own voice files.
 """
 
+import csv
 import json
 import re
 import time
+from pathlib import Path
 
-from commentdesk.sanitize import sanitize_reply
+from .config import ConfigError
+from .prompt import build_messages
+from .report import estimate_cost
+from .sanitize import sanitize_reply
 
 DECISIONS = ("reply", "skip", "escalate")
 
@@ -220,4 +225,151 @@ def process_comment(client, model_cfg: dict, messages: list, behavior: dict) -> 
         "raw": raw_text,
         "attempts": attempt + 1,
         "latency_s": round(time.monotonic() - started, 2),
+    }
+
+
+IN_FIELDS = ["id", "platform", "author", "comment", "video_title"]
+
+OUT_FIELDS = [
+    "id",
+    "platform",
+    "author",
+    "comment",
+    "video_title",
+    "decision",
+    "reason",
+    "reply",
+    "model",
+    "prompt_tokens",
+    "cached_tokens",
+    "cache_write_tokens",
+    "completion_tokens",
+    "cost_usd",
+    "error",
+]
+
+EMPTY_COMMENT_REASON = "empty comment, nothing to answer"
+
+
+def read_comments(path: str | Path) -> list[dict]:
+    """Read the input CSV into rows keyed by IN_FIELDS.
+
+    utf-8-sig because a spreadsheet export writes an invisible marker before the
+    first header. Read as plain utf-8 it becomes part of that column's name, so
+    the id column silently stops matching and every row loses its identifier.
+
+    Only `comment` is required. `author` is optional on purpose: it is personal
+    data in a real export, many operators strip it before the file leaves their
+    machine, and an absent author means the request omits that clause rather than
+    inventing a placeholder name.
+    """
+    with open(path, encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = [{k: (raw.get(k) or "").strip() for k in IN_FIELDS} for raw in reader]
+        fields = reader.fieldnames or []
+    if not rows:
+        raise ConfigError(f"no comments found in {path}")
+    # Checked after emptiness so a zero byte file gets the message that names its
+    # actual problem. A header spelled "Comment" would otherwise read every row
+    # as empty, skip all of them, and still exit 0.
+    if "comment" not in fields:
+        raise ConfigError(f"{path} has no 'comment' column (found: {', '.join(fields) or 'none'})")
+    return rows
+
+
+def write_rows(rows: list[dict], path: str | Path) -> None:
+    """Write the review CSV, creating the output directory if it is missing."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=OUT_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def run_pipeline(cfg, model_cfg, comments, knowledge_text, system_text, client):
+    """One model call per comment, in input order.
+
+    system_text arrives as a parameter rather than being rendered here so that
+    the batch path, the single comment path and the local UI all share one
+    rendering. Rendering per row would also change the prefix from row to row,
+    and the prefix is identical across a run precisely so the provider can serve
+    it from cache after the first call.
+    """
+    behavior = cfg.get("behavior") or {}
+    out_rows = []
+    for row in comments:
+        base = {k: row.get(k, "") for k in IN_FIELDS}
+        if not base["comment"].strip():
+            # Decided locally, so an empty comment never costs a call, and it
+            # never prices out at a real, honest zero either: no call happened
+            # to have a cost, so the cost column stays blank rather than "free".
+            result = {
+                "decision": "skip",
+                "reason": EMPTY_COMMENT_REASON,
+                "reply_text": "",
+                "error": "",
+                "usage": dict(EMPTY_USAGE),
+            }
+            cost = None
+        else:
+            messages = build_messages(system_text, knowledge_text, row)
+            result = process_comment(client, model_cfg, messages, behavior)
+            cost = estimate_cost(result["usage"], model_cfg)
+        usage = result["usage"]
+        out_rows.append(
+            {
+                **base,
+                "decision": result["decision"],
+                "reason": result["reason"],
+                "reply": result["reply_text"],
+                "model": model_cfg["model"],
+                "prompt_tokens": usage["prompt_tokens"],
+                "cached_tokens": usage["cached_tokens"],
+                "cache_write_tokens": usage["cache_write_tokens"],
+                "completion_tokens": usage["completion_tokens"],
+                "cost_usd": f"{cost:.6f}" if cost is not None else "",
+                "error": result["error"],
+            }
+        )
+        print(
+            f"  [{base['id']}] {result['decision']}"
+            + (f" | {result['error']}" if result["error"] else "")
+        )
+    return out_rows
+
+
+def run_one(
+    cfg,
+    model_cfg,
+    client,
+    knowledge_text,
+    system_text,
+    comment: str,
+    platform: str = "",
+    author: str = "",
+) -> dict:
+    """Process one ad hoc comment and return the whole trace.
+
+    Shared by the chat subcommand and the local UI, so that what an operator
+    tries by hand is produced by exactly the code that produces a batch row.
+    """
+    row = {"platform": platform, "author": author, "comment": comment, "video_title": ""}
+    messages = build_messages(system_text, knowledge_text, row)
+    result = process_comment(client, model_cfg, messages, cfg.get("behavior") or {})
+    return {
+        "model": model_cfg["model"],
+        "base_url": model_cfg.get("base_url", ""),
+        "params": model_cfg.get("params") or {},
+        "comment": comment,
+        "platform": platform,
+        "request_messages": messages,
+        "raw_response": result.get("raw", ""),
+        "decision": result["decision"],
+        "reason": result["reason"],
+        "reply": result["reply_text"],
+        "error": result["error"],
+        "usage": result["usage"],
+        "attempts": result.get("attempts"),
+        "latency_s": result.get("latency_s"),
+        "cost_usd": estimate_cost(result["usage"], model_cfg),
     }

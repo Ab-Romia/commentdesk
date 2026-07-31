@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
+import csv
 import types
 
 import pytest
 
 from commentdesk import engine
+from commentdesk.config import ConfigError
 from commentdesk.engine import (
     DECISIONS,
+    EMPTY_COMMENT_REASON,
+    IN_FIELDS,
+    OUT_FIELDS,
     RETRY_NUDGE,
     RETRY_WAITS,
     ParseError,
@@ -13,6 +18,10 @@ from commentdesk.engine import (
     is_retryable,
     parse_response,
     process_comment,
+    read_comments,
+    run_one,
+    run_pipeline,
+    write_rows,
 )
 
 
@@ -368,3 +377,170 @@ def test_a_reply_emptied_by_sanitation_does_not_ship_as_a_reply():
         "cached_tokens": 58000,
         "cache_write_tokens": 0,
     }
+
+
+PRICED = {
+    "model": "vendor-a/model-one",
+    "params": {},
+    "base_url": "https://gateway.example/v1",
+    "api_key_env": "GATEWAY_KEY",
+    "pricing": {
+        "input_per_mtok": 1.0,
+        "cached_per_mtok": 0.1,
+        "output_per_mtok": 6.0,
+        "cache_write_per_mtok": 1.25,
+    },
+}
+CFG = {"behavior": {"separator": ", ", "banned_emoji": ""}}
+
+
+def test_read_comments_strips_the_spreadsheet_byte_order_mark(tmp_path):
+    # A spreadsheet export carries a mark before the first header, which would
+    # otherwise become part of the first column's name and lose every id.
+    path = tmp_path / "comments.csv"
+    path.write_text(
+        "id,platform,author,comment\n1,forum,Dana,How much is it?\n", encoding="utf-8-sig"
+    )
+    rows = read_comments(path)
+    assert rows[0]["id"] == "1"
+    assert rows[0]["comment"] == "How much is it?"
+
+
+def test_read_comments_accepts_a_file_with_no_author_column(tmp_path):
+    # The author is personal data. An export without it is the normal case, not
+    # an error, and the row simply carries an empty author.
+    path = tmp_path / "comments.csv"
+    path.write_text("id,platform,comment\n1,forum,Does it cover winter?\n", encoding="utf-8")
+    rows = read_comments(path)
+    assert rows[0]["author"] == ""
+    assert rows[0]["comment"] == "Does it cover winter?"
+    assert set(rows[0]) == set(IN_FIELDS)
+
+
+def test_read_comments_rejects_a_file_whose_comment_column_is_misspelled(tmp_path):
+    # Without this check every row is read as empty and the run exits 0 having
+    # answered nothing, which is the failure that looks most like success.
+    path = tmp_path / "comments.csv"
+    path.write_text("id,platform,Comment\n1,forum,How much is it?\n", encoding="utf-8")
+    with pytest.raises(ConfigError) as caught:
+        read_comments(path)
+    assert "comment" in str(caught.value)
+    assert "Comment" in str(caught.value)
+
+
+def test_read_comments_reports_emptiness_before_it_reports_a_bad_header(tmp_path):
+    # A zero byte file has no header to complain about. Checking emptiness first
+    # gets the operator the message that names the actual problem.
+    path = tmp_path / "comments.csv"
+    path.write_text("", encoding="utf-8")
+    with pytest.raises(ConfigError) as caught:
+        read_comments(path)
+    assert "no comments found" in str(caught.value)
+
+
+def test_run_pipeline_decides_an_empty_comment_without_calling_the_model():
+    client = FakeClient([])  # popping from this would raise IndexError
+    rows = run_pipeline(
+        CFG,
+        PRICED,
+        [{"id": "1", "platform": "forum", "author": "", "comment": "   ", "video_title": ""}],
+        "KNOWLEDGE",
+        "SYSTEM",
+        client,
+    )
+    assert client.calls == []
+    assert rows[0]["decision"] == "skip"
+    assert rows[0]["reason"] == EMPTY_COMMENT_REASON
+    assert rows[0]["reason"].isascii()
+    assert rows[0]["cost_usd"] == ""
+
+
+def test_run_pipeline_writes_every_out_field_and_the_model_it_used():
+    client = FakeClient([fake_response(SKIP_JSON)])
+    rows = run_pipeline(
+        CFG,
+        PRICED,
+        [
+            {
+                "id": "7",
+                "platform": "forum",
+                "author": "Dana",
+                "comment": "Nice one",
+                "video_title": "Ep 3",
+            }
+        ],
+        "KNOWLEDGE",
+        "SYSTEM",
+        client,
+    )
+    assert set(rows[0]) == set(OUT_FIELDS)
+    assert rows[0]["model"] == "vendor-a/model-one"
+    assert rows[0]["id"] == "7" and rows[0]["author"] == "Dana"
+    assert rows[0]["prompt_tokens"] == 29150
+    assert float(rows[0]["cost_usd"]) > 0
+
+
+def test_run_pipeline_leaves_the_cost_blank_when_pricing_is_incomplete():
+    # A blank cost is honest. A zero reads as free.
+    unpriced = {"model": "vendor-b/model-two", "params": {}}
+    client = FakeClient([fake_response(SKIP_JSON)])
+    rows = run_pipeline(
+        CFG,
+        unpriced,
+        [{"id": "1", "platform": "forum", "author": "", "comment": "Nice one", "video_title": ""}],
+        "KNOWLEDGE",
+        "SYSTEM",
+        client,
+    )
+    assert rows[0]["cost_usd"] == ""
+
+
+def test_run_pipeline_sends_an_identical_system_prefix_for_every_row():
+    # The whole cost model depends on this. A per row difference in the prefix
+    # turns every call into a cache miss.
+    client = FakeClient([fake_response(SKIP_JSON), fake_response(SKIP_JSON)])
+    comments = [
+        {
+            "id": "1",
+            "platform": "forum",
+            "author": "Dana",
+            "comment": "How much?",
+            "video_title": "Ep 3",
+        },
+        {
+            "id": "2",
+            "platform": "forum",
+            "author": "Sam",
+            "comment": "Where do I get it?",
+            "video_title": "Ep 4",
+        },
+    ]
+    run_pipeline(CFG, PRICED, comments, "KNOWLEDGE", "SYSTEM", client)
+    first, second = client.calls
+    assert first["messages"][0] == second["messages"][0]
+    assert first["messages"][1] != second["messages"][1]
+
+
+def test_write_rows_round_trips_through_the_csv(tmp_path):
+    row = dict.fromkeys(OUT_FIELDS, "")
+    row.update(id="1", decision="reply", reply="Yes, it covers winter.")
+    path = tmp_path / "nested" / "review.csv"
+    write_rows([row], path)
+    with open(path, encoding="utf-8", newline="") as handle:
+        back = list(csv.DictReader(handle))
+    assert list(back[0]) == OUT_FIELDS
+    assert back[0]["reply"] == "Yes, it covers winter."
+
+
+def test_run_one_returns_the_whole_trace():
+    client = FakeClient([fake_response(SKIP_JSON)])
+    trace = run_one(CFG, PRICED, client, "KNOWLEDGE", "SYSTEM", "How much is it?")
+    assert trace["decision"] == "skip"
+    assert trace["model"] == "vendor-a/model-one"
+    assert trace["base_url"] == "https://gateway.example/v1"
+    assert trace["comment"] == "How much is it?"
+    assert trace["platform"] == ""
+    assert trace["raw_response"] == SKIP_JSON
+    assert trace["request_messages"] == client.calls[0]["messages"]
+    assert trace["cost_usd"] > 0
+    assert trace["attempts"] == 1
