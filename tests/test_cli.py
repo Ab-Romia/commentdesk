@@ -260,6 +260,24 @@ def test_chat_reports_a_missing_key_without_a_traceback(tmp_path, capsys, monkey
     assert "Traceback" not in err
 
 
+def test_ui_subcommand_wires_config_host_and_port_through(tmp_path, monkeypatch):
+    """serve is patched out, so this never binds a real socket. It only checks that
+    the subcommand hands serve the config path and the flags this test passed, and
+    that a lazy import inside cmd_ui does not stop monkeypatch from reaching it."""
+    from commentdesk import ui
+
+    calls = []
+    monkeypatch.setattr(
+        ui,
+        "serve",
+        lambda config_path, host="127.0.0.1", port=8377: calls.append((config_path, host, port)),
+    )
+    config = build_product(tmp_path)
+    rc = main(["ui", "--config", str(config), "--host", "0.0.0.0", "--port", "9000"])
+    assert rc == 0
+    assert calls == [(config, "0.0.0.0", 9000)]
+
+
 def test_review_renders_a_page_from_a_csv(tmp_path, capsys):
     result = tmp_path / "review.csv"
     result.write_text(

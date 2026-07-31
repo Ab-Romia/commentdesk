@@ -257,9 +257,10 @@ def cmd_chat(args) -> int:
 
 
 def cmd_ui(args) -> int:
-    # ui.py does not exist yet: it lands in a later task. The import is lazy so
-    # that importing this module, and every other subcommand, never needs it.
-    from . import ui  # pyright: ignore[reportAttributeAccessIssue]
+    # Lazy on the same rule as the ingest import below: a subcommand's own
+    # dependencies load only when that subcommand runs, not on every invocation
+    # of the CLI.
+    from . import ui
 
     try:
         ui.serve(Path(args.config), host=args.host, port=args.port)
