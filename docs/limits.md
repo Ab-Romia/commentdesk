@@ -95,6 +95,42 @@ number it holds. The operator words around it directly in `voice.md`, writing ou
 count in whichever grammatical form their own rule needs rather than leaning on the
 placeholder to produce it, exactly as `tests/fixtures/nazzef-kit-ar` does.
 
+## The engine's own English
+
+The claim this project makes is that the engine holds no copy **in your language** and
+none **about your product**. That claim is narrower than "the engine holds no English",
+and the narrower one is the true one.
+
+`tests/test_guarantees.py` proves that no string literal under `src/` contains a
+non-ASCII character. That is a real guarantee and it is worth having, but notice what
+it cannot prove: English is ASCII, so an ASCII-only check can never catch English copy
+arriving in a module. The English that is there is listed here instead, in full, so
+that the guarantee and the list together say the whole truth.
+
+| Where | What it is | Who reads it |
+|---|---|---|
+| `prompt.py`, `OUTPUT_CONTRACT` | the JSON shape `parse_response` requires | the model |
+| `prompt.py`, `build_messages` | the user-message labels: `Platform:`, `Post title:`, `Comment from <author>:` | the model |
+| `engine.py`, `RETRY_NUDGE` | the one nudge appended after an unparseable answer | the model |
+| `sources/pdf_vision.py`, `TRANSCRIBE_PROMPT` | the transcription instruction | the model |
+| `render/review_html.py`, `DRAFT_BANNER`, `DEFAULT_CURRENCY_NOTE`, `NEVER_POSTED_NOTE` | three fixed notices on the review page | your reviewer |
+| `render/review_html.py`, `COLUMNS` | the ten column headings on the review page | your reviewer |
+| `engine.py`, `EMPTY_COMMENT_REASON` | the reason written for a row whose comment is empty | your reviewer, in the `reason` column |
+| `report.py`, `build_report` | the four lines of the end-of-run report | you, in your terminal |
+| `cli.py` | flag names, help text and startup error messages | you, in your terminal |
+
+Nothing on that list is configurable today, and nothing on it enters a drafted reply.
+The first four are sent to the model and are wire format rather than voice: an operator
+who translated `OUTPUT_CONTRACT` would break parsing on comment one, which is exactly
+why it lives where an operator cannot reach it (`docs/writing-a-voice.md` says the same
+thing from the other side). The rest is machine output around your content, not your
+content.
+
+The item that costs a non-English operator the most is the review page: a reviewer
+working in Arabic opens `review.html` and reads an English banner above a table of
+Arabic replies, under English headings. Making the three notices overridable from
+config would fix that, and it is not built yet. Stating it is the point of this page.
+
 ## Knowledge larger than the context window
 
 The whole knowledge document is read once and placed in the cached system prefix, in
@@ -142,6 +178,8 @@ new directory, before running the same comments through again.
 
 Posting, scheduling, holding platform credentials, a hosted service, a database, and a
 plugin marketplace. Language packs are the one item on this list with an unusual
-reason: there is no language support to add, because there is no language handling
-anywhere in the engine to begin with. Your language lives entirely in the files you
-write, not in a setting this tool exposes.
+reason: nothing in the engine inspects, detects or adapts to the language you write
+in, so there is no language setting for a pack to fill. Your language lives entirely
+in the files you write. What the engine does hold in English of its own is the fixed
+scaffolding listed under "The engine's own English" above, and a language pack is not
+what that section is asking for.

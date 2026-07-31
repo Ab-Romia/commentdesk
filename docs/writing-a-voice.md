@@ -10,8 +10,9 @@ never inspects either one beyond substituting placeholders into it.
   have written yourself.
 
 Both are plain text. Write them in the language you sell in. There is no language
-setting, because there is no language handling. If your rules are in Portuguese, the
-model reads Portuguese rules and writes Portuguese replies.
+setting, because nothing in the engine inspects, detects or adapts to the language you
+write in. If your rules are in Portuguese, the model reads Portuguese rules and writes
+Portuguese replies.
 
 ## What gets sent
 
@@ -27,6 +28,10 @@ JSON shape the engine parses. An operator who edited it, even only to translate 
 would break parsing for every row of the run, so it lives where an operator cannot
 reach it: it is written into the prefix by the engine itself, never read from a file
 you control.
+
+It is not the only English the engine owns. There are a handful of other fixed strings,
+none of them voice and none of them reachable from your config, and `docs/limits.md`
+lists every one of them under "The engine's own English" along with who reads each.
 
 ## The placeholders
 

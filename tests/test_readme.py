@@ -92,6 +92,19 @@ def test_readme_credits_promptfoo(text):
     assert "promptfoo" in text
 
 
+def test_readme_claims_no_copy_in_your_language_rather_than_no_english(text):
+    """The wide version of this claim was false and a reader could disprove it by
+    opening one file: three paragraphs of English prose sit in constants in
+    render/review_html.py. English is ASCII, so the ASCII-only guard the README cites
+    as proof is structurally incapable of catching them. The narrow claim is true,
+    tested, and more specific, and this test stops the wide one from coming back.
+    """
+    assert "no copy in your language and none about your product" in text
+    assert "human-language copy" not in text
+    # The honest version is only honest if the list it promises actually exists.
+    assert "written out in `docs/limits.md`" in text
+
+
 def test_readme_badges_are_reference_style_and_defined_at_the_bottom(text):
     used = set()
     for m in re.finditer(r"\[!\[[^\]]+\]\[([a-z-]+)\]\]\[([a-z-]+)\]", text):

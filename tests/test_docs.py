@@ -137,8 +137,41 @@ def test_limits_doc_states_every_known_limit():
         "shape and never content",
         "cannot be prevented",
         "context window",
+        "The engine's own English",
     ):
         assert phrase in text, f"limits.md no longer states: {phrase!r}"
+
+
+# Every English string the engine owns, as (module, attribute). The ASCII-only guard
+# in test_guarantees.py cannot see these, because English is ASCII: it proves no copy
+# in another script reached a module and nothing more. This list is the other half of
+# that guarantee, and the test below binds it to the document that publishes it.
+ENGINE_OWNED_ENGLISH = [
+    ("commentdesk.prompt", "OUTPUT_CONTRACT"),
+    ("commentdesk.engine", "RETRY_NUDGE"),
+    ("commentdesk.engine", "EMPTY_COMMENT_REASON"),
+    ("commentdesk.sources.pdf_vision", "TRANSCRIBE_PROMPT"),
+    ("commentdesk.render.review_html", "DRAFT_BANNER"),
+    ("commentdesk.render.review_html", "DEFAULT_CURRENCY_NOTE"),
+    ("commentdesk.render.review_html", "NEVER_POSTED_NOTE"),
+    ("commentdesk.render.review_html", "COLUMNS"),
+]
+
+
+@pytest.mark.parametrize(("module_name", "attribute"), ENGINE_OWNED_ENGLISH)
+def test_limits_doc_names_every_english_string_the_engine_owns(module_name, attribute):
+    """The engine's own English is enumerable, so limits.md enumerates it.
+
+    A constant renamed or a new one added without touching the document leaves the
+    published list quietly incomplete, which is the exact failure the wide claim
+    ("nothing in the engine holds human-language copy") used to hide. Both halves are
+    checked: the attribute must still exist, and the document must still name it.
+    """
+    import importlib
+
+    module = importlib.import_module(module_name)
+    assert hasattr(module, attribute), f"{module_name}.{attribute} no longer exists"
+    assert attribute in read_doc("limits.md"), f"limits.md does not name {attribute}"
 
 
 def test_community_files_exist_and_state_the_hard_rules():

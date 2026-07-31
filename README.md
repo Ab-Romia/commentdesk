@@ -91,10 +91,19 @@ commentdesk bakeoff --config config.toml --comments comments.csv --out out
 | Knowledge | a text file you supply | the only thing a draft may state as fact |
 | Voice | `prompts/voice.md`, `prompts/examples.md` | your rules and your worked examples, in your language |
 
-Nothing in the engine holds human-language copy. No string literal under `src/`
-contains a non-ASCII character, and a test walks the AST of every module to keep it
-that way. Your language lives in your files, and you never open a `.py` file to change
-it. `tests/fixtures/nazzef-kit-ar` is a third product, config, voice, worked examples
+The engine holds no copy in your language and none about your product. Everything a
+reader of your replies perceives comes from your files, and you never open a `.py`
+file to change it. No string literal under `src/` contains a non-ASCII character, and
+a test walks the AST of every module to keep it that way.
+
+The engine does hold English of its own, and it is machine scaffolding rather than
+voice: the JSON output contract and the two instructions sent to a model, the review
+page's fixed notices and column headings, the four lines of the run report, and the
+one reason string a locally decided empty comment carries. That list is complete, it
+is written out in `docs/limits.md` with who reads each item, and none of it enters a
+reply as your voice.
+
+`tests/fixtures/nazzef-kit-ar` is a third product, config, voice, worked examples
 and comments, written entirely in Arabic, and it passes the same acceptance tests as
 the two English examples above. `docs/writing-a-voice.md` is the chapter to read next.
 
