@@ -1,6 +1,8 @@
 # Example product one: a fictional beginner field guide, sold as a paperback and a PDF.
-# Every value here is illustrative. Rates and model identifiers were written on
-# 2026-07-30 and must be checked against your gateway's catalogue before a live run.
+# Every value here is illustrative. Rates and model identifiers were checked against
+# OpenRouter's own model list on 2026-08-01 and must be re-checked against your
+# gateway's catalogue before a live run: both drift, without notice, on the
+# provider's side.
 
 [product]
 name = "The Backyard Forager's Field Guide"
@@ -56,17 +58,19 @@ phrases = ["the link is in the bio", "it is in the bio", "you will find it in th
 [model]
 label = "primary"
 base_url = "https://openrouter.ai/api/v1"
-model = "qwen/qwen3-235b-a22b-instruct"
+model = "qwen/qwen3.7-flash"
 api_key_env = "OPENROUTER_API_KEY"
 
-# USD per 1M tokens, as published on 2026-07-30. Rates move. estimate_cost returns
-# nothing rather than zero when any of the four is absent, so a stale or partial table
-# gives you a blank cost column instead of a confident wrong number.
+# USD per 1M tokens. A point-in-time observation read from OpenRouter's own model
+# list on 2026-08-01, not a quote: providers change pricing without notice, and this
+# table can go stale the day after it was checked. estimate_cost returns nothing
+# rather than zero when any of the four is absent, so a stale or partial table gives
+# you a blank cost column instead of a confident wrong number.
 [model.pricing]
-input_per_mtok = 0.30
-cached_per_mtok = 0.06
-output_per_mtok = 1.20
-cache_write_per_mtok = 0.375
+input_per_mtok = 0.03
+cached_per_mtok = 0.006
+output_per_mtok = 0.13
+cache_write_per_mtok = 0.038
 
 # Merged verbatim into the request body.
 # data_collection must sit inside `provider`. That is where the gateway reads it and its
@@ -86,11 +90,15 @@ provider = { allow_fallbacks = false, data_collection = "deny" }
 [[bakeoff.models]]
 label = "cheap"
 model = "deepseek/deepseek-chat"
-pricing = { input_per_mtok = 0.09, cached_per_mtok = 0.02, output_per_mtok = 0.18, cache_write_per_mtok = 0.0 }
-params = { enable_thinking = false, reasoning = { enabled = false }, provider = { allow_fallbacks = false, data_collection = "deny" } }
+# Read from OpenRouter's model list on 2026-08-01, not a quote; re-check before you
+# rely on it. This route does not accept a reasoning parameter, so none is sent here.
+pricing = { input_per_mtok = 0.2574, cached_per_mtok = 0.0, output_per_mtok = 1.0287, cache_write_per_mtok = 0.0 }
+params = { provider = { allow_fallbacks = false, data_collection = "deny" } }
 
 [[bakeoff.models]]
 label = "small"
-model = "mistralai/mistral-small-latest"
-pricing = { input_per_mtok = 0.10, cached_per_mtok = 0.01, output_per_mtok = 0.30, cache_write_per_mtok = 0.0 }
+model = "mistralai/mistral-small-3.2-24b-instruct"
+# Read from OpenRouter's model list on 2026-08-01, not a quote; re-check before you
+# rely on it. This route does not accept a reasoning parameter, so none is sent here.
+pricing = { input_per_mtok = 0.075, cached_per_mtok = 0.0, output_per_mtok = 0.2, cache_write_per_mtok = 0.0 }
 params = { provider = { data_collection = "deny" } }

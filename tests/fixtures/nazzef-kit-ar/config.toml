@@ -33,14 +33,16 @@ phrases = ["الرابط في البايو", "تجده في البايو", "مو
 [model]
 label = "primary"
 base_url = "https://openrouter.ai/api/v1"
-model = "qwen/qwen3-235b-a22b-instruct"
+model = "qwen/qwen3.7-flash"
 api_key_env = "OPENROUTER_API_KEY"
 
+# USD per 1M tokens. A point-in-time observation read from OpenRouter's own model
+# list on 2026-08-01, not a quote: providers change pricing without notice.
 [model.pricing]
-input_per_mtok = 0.30
-cached_per_mtok = 0.06
-output_per_mtok = 1.20
-cache_write_per_mtok = 0.375
+input_per_mtok = 0.03
+cached_per_mtok = 0.006
+output_per_mtok = 0.13
+cache_write_per_mtok = 0.038
 
 [model.params]
 # Both switches, together, exactly as docs/bakeoff.md asks for. reasoning is the
