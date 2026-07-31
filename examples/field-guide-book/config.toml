@@ -1,0 +1,96 @@
+# Example product one: a fictional beginner field guide, sold as a paperback and a PDF.
+# Every value here is illustrative. Rates and model identifiers were written on
+# 2026-07-30 and must be checked against your gateway's catalogue before a live run.
+
+[product]
+name = "The Backyard Forager's Field Guide"
+kind = "book"
+price_text = "$18"
+purchase_link = "https://example.com/field-guide"
+escalation_contact = "the team"
+
+[knowledge]
+source = "text"
+path = "knowledge.md"
+
+[voice]
+rules = "prompts/voice.md"
+examples = "prompts/examples.md"
+
+[behavior]
+cta_mode = "direct"
+# An alarm threshold, not a limiter. Nothing in the pipeline refuses to write a reply
+# because of this number. It is how you find out whether the voice file still holds
+# after you edit it.
+plug_cap = 0.75
+max_reply_sentences = 2
+bot_disclosure_text = "These replies are drafted with software and read by a person before they post."
+# Required and validated non-empty. If this list does not match the language your
+# replies actually use, is_plug returns false on every reply and the run reports a
+# plug rate of zero, which looks like a clean run and is not one.
+# Keep this on ONE LINE. tests/test_sanitize.py finds it with a line-anchored
+# substitution to prove an empty list cannot be configured; reformatting this across
+# multiple lines would make that substitution match nothing and the test would pass
+# without testing anything.
+plug_markers = ["example.com/field-guide", "link in bio", "in the bio"]
+banned_emoji = "🙂🙃😊"
+# Replaces any em or en dash the model writes. Set it to whatever a comma is in the
+# language you reply in. Nothing sniffs the script.
+separator = ", "
+platforms = ["youtube", "tiktok", "instagram"]
+
+# cta_mode selects one of these tables by name. Add your own table and name it in
+# behavior.cta_mode; no Python changes.
+[cta.direct]
+instruction = "If someone asks where to get it, give the link: {{purchase_link}}."
+phrases = [
+  "here is the link: {{purchase_link}}",
+  "you can get it at {{purchase_link}}",
+  "it lives at {{purchase_link}}",
+]
+
+[cta.bio_pointer]
+instruction = "If someone asks where to get it, say the link is in the bio. Do not write the address out."
+phrases = ["the link is in the bio", "it is in the bio", "you will find it in the profile"]
+
+[model]
+label = "primary"
+base_url = "https://openrouter.ai/api/v1"
+model = "qwen/qwen3-235b-a22b-instruct"
+api_key_env = "OPENROUTER_API_KEY"
+
+# USD per 1M tokens, as published on 2026-07-30. Rates move. estimate_cost returns
+# nothing rather than zero when any of the four is absent, so a stale or partial table
+# gives you a blank cost column instead of a confident wrong number.
+[model.pricing]
+input_per_mtok = 0.30
+cached_per_mtok = 0.06
+output_per_mtok = 1.20
+cache_write_per_mtok = 0.375
+
+# Merged verbatim into the request body.
+# data_collection must sit inside `provider`. That is where the gateway reads it and its
+# default is the opposite. At the top level it is accepted and silently ignored, which
+# would leave the promise resting on the account's settings instead of on the request.
+# reasoning.enabled is the gateway's own switch and is the one that takes effect. A
+# provider-native thinking flag is passed through untranslated, so it is kept only
+# because it costs nothing if the route ever changes. Leaving thinking on for a two
+# sentence reply bills the invisible tokens as output and adds seconds per comment.
+[model.params]
+enable_thinking = false
+reasoning = { enabled = false }
+provider = { allow_fallbacks = false, data_collection = "deny" }
+
+# Bake-off entries inherit base_url and api_key_env from [model] and nothing else. An
+# entry without its own pricing gets a blank cost column, never the default model's rates.
+[[bakeoff.models]]
+label = "cheap"
+model = "deepseek/deepseek-chat"
+pricing = { input_per_mtok = 0.09, cached_per_mtok = 0.02, output_per_mtok = 0.18, cache_write_per_mtok = 0.0 }
+params = { reasoning = { enabled = false }, provider = { allow_fallbacks = false, data_collection = "deny" } }
+
+[[bakeoff.models]]
+label = "small"
+model = "mistralai/mistral-small-latest"
+pricing = { input_per_mtok = 0.10, cached_per_mtok = 0.01, output_per_mtok = 0.30, cache_write_per_mtok = 0.0 }
+params = { provider = { data_collection = "deny" } }

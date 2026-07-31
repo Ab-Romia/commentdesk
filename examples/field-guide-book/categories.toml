@@ -1,0 +1,29 @@
+# What each synthetic comment is for. Tests assert coverage against this file, so a
+# comment can be reworded without breaking a test, and an intent cannot quietly
+# disappear from the sample.
+#
+# Every id in comments.csv must appear in at least one category.
+
+[categories]
+content_question = [1, 7, 9, 25, 28]
+purchase_intent = [2, 23, 24]
+price_objection = [6]
+praise = [3, 30]
+surprise = [4]
+hesitation = [26]
+non_english = [5, 22]
+no_author = [9]
+empty_comment = [14]
+emoji_only = [15]
+spam = [16]
+provocation = [11]
+mockery = [12]
+political = [13]
+already_answered = [27]
+shipping_question = [8]
+currency_question = [29]
+discount_question = [10]
+bot_question = [21]
+escalation_unhappy_buyer = [17]
+escalation_piracy = [18]
+escalation_out_of_scope = [19, 20]

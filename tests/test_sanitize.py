@@ -7,7 +7,6 @@ import pytest
 
 from commentdesk.config import ConfigError, load_config
 from commentdesk.sanitize import sanitize_reply
-from conftest import MINIMAL_CONFIG_TOML
 
 SEP = ", "
 # The three smiling faces the example config bans. Written as escapes so the file
@@ -194,7 +193,7 @@ def test_is_plug_is_false_when_no_configured_marker_appears():
     assert not is_plug("", [])
 
 
-def test_empty_plug_markers_cannot_be_configured(tmp_path):
+def test_empty_plug_markers_cannot_be_configured(tmp_path, repo_root):
     """The silently unmeasurable state is closed off by config, not by luck.
 
     In the source project the markers were hardcoded to one product's strings, so
@@ -202,18 +201,20 @@ def test_empty_plug_markers_cannot_be_configured(tmp_path):
     printed a clean zero, and plug_cap could never fire. A failure that looks like
     success is worse than a crash, so an empty marker list is a load error.
 
-    The shipped example product (examples/field-guide-book/) does not exist yet at
-    this point in the build; it lands in a later task. The suite's own stand-in for
-    a real, valid product config, MINIMAL_CONFIG_TOML from conftest.py, plays the
-    control here instead. It keeps plug_markers on one line for the same reason the
-    shipped example will: the substitution below depends on it.
+    This copies the real config.toml shipped with the field guide example rather
+    than a stand-in fixture, so the shipped example is the thing under test. That
+    config keeps plug_markers on one line and says so in a comment, for the same
+    reason this test does: the substitution below depends on it, and asserting the
+    match count is what turns a silent reformat into a loud test failure instead of
+    a test that quietly stops testing anything.
     """
     from commentdesk.sanitize import is_plug
 
+    real_config = repo_root / "examples" / "field-guide-book" / "config.toml"
     config_path = tmp_path / "config.toml"
-    config_path.write_text(MINIMAL_CONFIG_TOML, encoding="utf-8")
+    config_path.write_text(real_config.read_text(encoding="utf-8"), encoding="utf-8")
 
-    # The fixture config is the control: it loads, and its markers are real.
+    # The shipped example is the control: it loads, and its markers are real.
     markers = load_config(config_path)["behavior"]["plug_markers"]
     assert markers
     assert any(is_plug(f"see {m} for more", markers) for m in markers)
@@ -222,7 +223,7 @@ def test_empty_plug_markers_cannot_be_configured(tmp_path):
     broken, count = re.subn(r"(?m)^plug_markers\s*=.*$", "plug_markers = []", raw)
     assert count == 1, (
         "substitution matched nothing, so this test would pass without testing "
-        "anything. The fixture config keeps plug_markers on one line; if that "
+        "anything. The shipped config keeps plug_markers on one line; if that "
         "changes, update this pattern."
     )
     config_path.write_text(broken, encoding="utf-8")
