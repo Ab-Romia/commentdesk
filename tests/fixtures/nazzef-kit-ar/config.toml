@@ -1,0 +1,47 @@
+# A third product, in a third language, used only by the acceptance tests. Fictional.
+# Nothing here is English, including the CTA table name's contents and the triage rules.
+
+[product]
+name = "طقم نظّف للعناية بالأحذية الرياضية"
+kind = "طقم"
+price_text = "١٤٩ جنيهاً"
+purchase_link = "https://example.com/nazzef-kit"
+escalation_contact = "فريق الدعم"
+
+[knowledge]
+source = "text"
+path = "knowledge.md"
+
+[voice]
+rules = "prompts/voice.md"
+examples = "prompts/examples.md"
+
+[behavior]
+cta_mode = "bio_link"
+plug_cap = 0.6
+max_reply_sentences = 2
+bot_disclosure_text = "هذه الردود يكتبها برنامج، ويراجعها شخص قبل نشرها."
+plug_markers = ["البايو", "https://example.com/nazzef-kit"]
+banned_emoji = "🙂🙃"
+separator = "، "
+platforms = ["youtube", "instagram"]
+
+[cta.bio_link]
+instruction = "إذا سأل أحد عن مكان الشراء، وضّح أن الرابط موجود في البايو، ولا تكتب العنوان كاملاً."
+phrases = ["الرابط في البايو", "تجده في البايو", "موجود في البايو"]
+
+[model]
+label = "primary"
+base_url = "https://openrouter.ai/api/v1"
+model = "qwen/qwen3-235b-a22b-instruct"
+api_key_env = "OPENROUTER_API_KEY"
+
+[model.pricing]
+input_per_mtok = 0.30
+cached_per_mtok = 0.06
+output_per_mtok = 1.20
+cache_write_per_mtok = 0.375
+
+[model.params]
+reasoning = { enabled = false }
+provider = { allow_fallbacks = false, data_collection = "deny" }

@@ -20,7 +20,7 @@ from commentdesk.sources import load_knowledge
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "commentdesk"
-OTHER_LANGUAGE = ROOT / "tests" / "fixtures" / "balcony-kit-hi"
+OTHER_LANGUAGE = ROOT / "tests" / "fixtures" / "nazzef-kit-ar"
 
 PRODUCTS = {
     "book": ROOT / "examples" / "field-guide-book",
@@ -88,34 +88,39 @@ def test_a_product_in_another_language_gets_the_same_guarantees():
     assert cfg["cta"][behavior["cta_mode"]]["phrases"][0] in text
 
     knowledge = load_knowledge(cfg, OTHER_LANGUAGE)
-    assert len(knowledge.split()) > 100
+    assert len(knowledge.split()) > 200  # same floor as the two English examples
 
     # sanitize_reply replaces the dash with the configured separator and nothing else.
     # The bug this pins: the separator used to be guessed from the script of the reply,
     # so a reply in an unmeasured script had punctuation from a third script injected
-    # into it, which is precisely what this function exists to prevent.
-    raw = "धूप जरूरी है \u2014 पानी कम दें 🙂"
+    # into it, which is precisely what this function exists to prevent. This fixture's
+    # separator is the Arabic comma, "\u060c ". A fixture whose separator were a Latin
+    # comma could not tell "the separator was read from config" apart from "the
+    # separator is hardcoded to a Latin comma"; this one can, because the two marks
+    # are visibly different and the assertions below check for each by name.
+    raw = "الشمس ضرورية \u2014 قلل الماء 🙂"
     cleaned = sanitize_reply(raw, behavior["separator"], behavior["banned_emoji"])
-    assert cleaned == "धूप जरूरी है, पानी कम दें"
+    assert cleaned == "الشمس ضرورية\u060c قلل الماء"
     assert "\u2014" not in cleaned  # the em dash is gone
-    assert "\u060c" not in cleaned  # and no Arabic script comma arrived
+    assert "\u060c" in cleaned  # the Arabic comma from config made it into the output
+    assert "," not in cleaned  # and no Latin comma took its place
     assert "\u3001" not in cleaned  # and no CJK ideographic comma either
     assert "🙂" not in cleaned
 
     # is_plug reads this config's markers, not a hardcoded word in any language
-    assert is_plug("लिंक बायो में है", behavior["plug_markers"])
-    assert is_plug("https://example.com/balcony-kit", behavior["plug_markers"])
-    assert not is_plug("धनिया सबसे आसान है", behavior["plug_markers"])
+    assert is_plug("الرابط موجود في البايو", behavior["plug_markers"])
+    assert is_plug("https://example.com/nazzef-kit", behavior["plug_markers"])
+    assert not is_plug("التنظيف بالفرشاة الناعمة أسهل طريقة", behavior["plug_markers"])
 
     # find_repetition sees a repeated closing in this script too
     rows = [
-        {"id": "1", "reply": "तीन घंटे धूप चाहिए, आपकी बागवानी के लिए शुभकामनाएं"},
-        {"id": "2", "reply": "पानी उँगली से जाँचिए, आपकी बागवानी के लिए शुभकामनाएं"},
-        {"id": "3", "reply": "धनिया से शुरू कीजिए, आपकी बागवानी के लिए शुभकामनाएं"},
+        {"id": "1", "reply": "استخدم الفرشاة الناعمة أولاً، بالتوفيق"},
+        {"id": "2", "reply": "جفف الحذاء بعيداً عن الشمس، بالتوفيق"},
+        {"id": "3", "reply": "ابدأ بالمحلول المخفف، بالتوفيق"},
     ]
     flags = find_repetition(rows)
     assert flags, "a closing repeated three times was not reported"
-    assert "शुभकामनाएं" in " ".join(flags)
+    assert "بالتوفيق" in " ".join(flags)
 
 
 @pytest.mark.parametrize("name", sorted(PRODUCTS))
