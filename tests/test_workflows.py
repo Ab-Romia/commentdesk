@@ -113,3 +113,27 @@ def test_dependabot_is_monthly_grouped_and_cooled_down():
     assert "default-days: 14" in text
     for ecosystem in ("github-actions", "uv"):
         assert f"package-ecosystem: {ecosystem}" in text
+
+
+def test_local_hooks_call_the_same_make_targets_as_ci():
+    """Hooks that reimplement CI drift from it, and the drift is discovered in CI.
+
+    Calling the same make targets means there is exactly one definition of each check.
+    """
+    config = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    hook_targets = set(re.findall(r"entry:\s*make\s+(\w+)", config))
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    ci_targets = set(re.findall(r"run:\s*make\s+(\w+)", ci))
+    assert ci_targets, "ci.yml calls no make targets"
+    assert ci_targets <= hook_targets, (
+        f"CI runs targets no hook runs: {sorted(ci_targets - hook_targets)}"
+    )
+
+
+def test_remote_hooks_are_present_and_revision_pinned():
+    config = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    for hook in ("codespell", "validate-pyproject", "end-of-file-fixer"):
+        assert f"id: {hook}" in config, f"missing hook: {hook}"
+    revs = re.findall(r"(?m)^\s+rev:\s*(\S+)$", config)
+    assert revs, "no pinned revisions"
+    assert all(rev not in ("HEAD", "master", "main") for rev in revs), revs

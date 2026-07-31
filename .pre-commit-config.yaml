@@ -1,0 +1,43 @@
+# Remote hooks are pinned by rev. Run `uv run pre-commit autoupdate` to move them.
+# The local hooks call the same make targets CI calls, so there is one definition of
+# each check and the two cannot drift.
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=512]
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
+    hooks:
+      - id: codespell
+        additional_dependencies: [tomli]
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: v0.25
+    hooks:
+      - id: validate-pyproject
+
+  - repo: local
+    hooks:
+      - id: lint
+        name: lint
+        entry: make lint
+        language: system
+        pass_filenames: false
+      - id: typecheck
+        name: typecheck
+        entry: make typecheck
+        language: system
+        pass_filenames: false
+      - id: test
+        name: test
+        entry: make test
+        language: system
+        pass_filenames: false

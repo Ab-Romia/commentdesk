@@ -34,7 +34,7 @@ pdf = ["pymupdf>=1.24.3"]
 commentdesk = "commentdesk.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.6", "pyright>=1.1.380"]
+dev = ["pytest>=8.0", "ruff>=0.6", "pyright>=1.1.380", "pre-commit>=4.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/commentdesk"]
@@ -69,3 +69,18 @@ testpaths = ["tests"]
 addopts = "-q"
 xfail_strict = true
 filterwarnings = ["error"]
+
+[tool.codespell]
+# CSVs are operator data, not maintained prose: comment exports carry real usernames
+# and real language mixes, including words an English dictionary flags as typos.
+# ./notes is the planning tree: never shipped, never committed, not held to this
+# repository's prose standard.
+skip = "./.git,./out,./.venv,./uv.lock,./docs/img,./notes,*.csv"
+# Each entry below is a deliberate string, not a typo left uncaught:
+# unparseable: a valid spelling variant used in prose and code comments.
+# summar: a stem a test asserts as a substring, not a word on its own.
+# integrat: the regex fragment covering integrate/integration in a forbidden-claim
+#   list, not a word on its own.
+# caf: half of "cafe", built with chr() in a test so that file stays ascii itself.
+# responde: Spanish, in a worked example that demonstrates a non-English reply.
+ignore-words-list = "nd,ba,unparseable,summar,integrat,caf,responde"
