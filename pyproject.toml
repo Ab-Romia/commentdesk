@@ -72,9 +72,12 @@ reportMissingImports = "error"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m \"not live\""
 xfail_strict = true
 filterwarnings = ["error"]
+markers = [
+  "live: hits a real network endpoint (OpenRouter's model list); excluded from the default run, opt in with `pytest -m live`",
+]
 
 [tool.codespell]
 # CSVs are operator data, not maintained prose: comment exports carry real usernames

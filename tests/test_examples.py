@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """The shipped example products are part of the contract, so they are tested."""
 
+import json
 import tomllib
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -235,6 +237,31 @@ def test_a_model_table_that_turns_reasoning_off_sets_both_switches(label, table)
     assert params.get("enable_thinking") is False, (
         f"{label} sets reasoning.enabled = false without enable_thinking = false"
     )
+
+
+@pytest.mark.live
+def test_every_shipped_model_id_exists_on_openrouter():
+    """Opt-in and network-dependent, so the default offline run skips it.
+
+    A model ID OpenRouter has retired or renamed does not fail load_config: rule
+    5 keeps the loader validating shape, never content, and TOML has no way to
+    say a string must currently resolve on a remote catalogue. It fails a live
+    run instead, with an HTTP 400 on every single comment. This is the check
+    that would have caught it first. Run it with `uv run pytest -m live` before
+    a release, not on every commit; the default suite stays offline with no key.
+    """
+    request = urllib.request.Request(
+        "https://openrouter.ai/api/v1/models", headers={"Accept": "application/json"}
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = json.load(response)
+    live_ids = {entry["id"] for entry in payload["data"]}
+
+    tables = [pair for path in CONFIGS_IN_THIS_REPOSITORY for pair in model_tables(path)]
+    assert tables, "no config found to check"
+    for label, table in tables:
+        model_id = table["model"]
+        assert model_id in live_ids, f"{label} names {model_id!r}, which OpenRouter does not serve"
 
 
 def test_the_bakeoff_doc_tells_the_operator_to_write_both_flags_themselves():

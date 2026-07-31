@@ -20,6 +20,20 @@ locally will fail it there too.
 The test suite runs offline, with no network access and no API key. If a change makes
 that untrue, the change is wrong, not the test that caught it.
 
+One test is the deliberate exception. `test_every_shipped_model_id_exists_on_openrouter`
+in `tests/test_examples.py` fetches OpenRouter's live model list and checks every model
+ID in every shipped example config and test fixture against it, so a model a provider
+has retired or renamed is caught here instead of on someone's first live run. It is
+marked `live` and excluded from the default run (`addopts` passes `-m "not live"`), so
+`make check` and a plain `pytest` stay offline. Run it before a release:
+
+```bash
+uv run pytest -m live
+```
+
+It needs network access to `openrouter.ai` and no API key, since the model list is a
+public endpoint.
+
 ## Four rules a well-meaning pull request breaks by accident
 
 1. **No non-ASCII character in any string literal under `src/`, docstrings included.**
