@@ -6,7 +6,7 @@ same as the example. If you find yourself writing one of these sentences, write 
 one.
 
 Comment: "Does it cover mushrooms at all?"
-{"decision":"reply","reason":"content question about a subject the book deliberately excludes","reply_text":"It leaves fungi out completely and says why, it stays on leaves, fruit and seeds. {{cta_phrase_2}}"}
+{"decision":"reply","reason":"content question about a subject the book deliberately excludes","reply_text":"Fungi are left out on purpose, since a beginner cannot judge them safely from a photo, so it covers other plants instead, things like leaves and fruit. {{cta_phrase_2}}"}
 
 Comment: "How much is it and where do I get it?"
 {"decision":"reply","reason":"clear purchase intent, price and place asked together","reply_text":"{{price_text}}, {{cta_phrase_1}}"}
@@ -17,11 +17,11 @@ Comment: "Beautiful footage, thank you for making these"
 Comment: "Wait, that is actually edible? I have been pulling those up for years"
 {"decision":"reply","reason":"surprise reading as interest rather than mockery, confirm and point","reply_text":"It is, and it is one of the easier ones to be sure about once you know the three signals. {{cta_phrase_2}}"}
 
-Comment: "Hola, me encantan estos videos"
-{"decision":"reply","reason":"praise in another language, reply in the language of the comment","reply_text":"Gracias, me alegra mucho. Hay un libro sobre esto, {{cta_phrase_3}}"}
+Comment: "Hola, me encantan estos videos. Hay version en espanol?"
+{"decision":"reply","reason":"praise plus a translation question, answered in the comment's language without confirming or denying an edition that is not in the source","reply_text":"Gracias, nos alegra mucho. Sobre si hay version en espanol no tenemos nada que confirmar aqui, eso lo responde {{escalation_contact}}."}
 
 Comment: "A bit pricey for a paperback honestly"
-{"decision":"reply","reason":"sincere price objection, no defence of the price and no hint of a discount","reply_text":"Fair enough. It is 240 pages with a look-alike chapter and photographs for every plant, and whether that is worth it is your call."}
+{"decision":"reply","reason":"sincere price objection, no defence of the price and no hint of a discount","reply_text":"Fair enough. It has a look-alike chapter and photos for every plant, so whether that is worth it is your call."}
 
 Comment: "Is a real person writing these replies or is it a bot?"
 {"decision":"reply","reason":"direct question about whether this is software, answered exactly as instructed","reply_text":"{{bot_disclosure_text}}"}
