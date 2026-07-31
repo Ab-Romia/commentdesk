@@ -209,30 +209,68 @@ def test_a_partly_priced_run_totals_only_the_rows_that_have_a_price():
 
 
 def test_a_real_zero_cost_counts_as_priced_not_blank():
-    """0.0 is a real answer: a call, or a locally decided row, that truly
-    cost nothing. `value or ""` would otherwise treat it as falsy and drop
-    it to blank, which reads as unpriced rather than priced-at-zero, and
-    would wrongly trip the "N of M priced calls" qualifier above even
-    though every row here is in fact priced."""
+    """0.0 is a real answer: a call, or a locally decided row, that truly cost
+    nothing. `value or ""` would treat it as falsy and drop it to blank, which reads
+    as unpriced rather than priced-at-zero.
+
+    Every row is a float here, and 0.0 is the only row. The earlier version of this
+    test paired a 0.0 row with a "0.0100" row and asserted "$0.0100", which passes
+    with the 0.0 row dropped entirely and so proved nothing about the behaviour it
+    names. One row, and the total has to be the figure only that row can produce.
+    """
+    rows = [row(id="1", decision="reply", reply="Here you go", prompt_tokens=29150, cost_usd=0.0)]
+    report = build_report(rows, plug_cap=0.75, markers=MARKERS)
+    assert "total cost: $0.0000" in report
+    assert "unavailable" not in report
+    assert "priced calls" not in report
+    # And the qualifier stays off when a real zero sits beside a real figure.
+    rows.append(
+        row(
+            id="2", decision="reply", reply="Glad it helped", prompt_tokens=29150, cost_usd="0.0100"
+        )
+    )
+    both = build_report(rows, plug_cap=0.75, markers=MARKERS)
+    assert "$0.0100" in both
+    assert "priced calls" not in both
+
+
+@pytest.mark.parametrize("figure", ["nan", "inf", "-inf", "NaN", "Infinity"])
+def test_a_non_finite_cost_is_unpriced_rather_than_printed(figure):
+    """`total cost: $nan` is not a figure, and one inf makes a whole run's total inf.
+    Both are spellable in TOML as a rate and both survive float(), so neither is
+    caught by anything that only asks whether the cell parses."""
     rows = [
-        row(
-            id="1",
-            decision="reply",
-            reply="Here you go",
-            prompt_tokens=29150,
-            cost_usd=0.0,
-        ),
-        row(
-            id="2",
-            decision="reply",
-            reply="Glad it helped",
-            prompt_tokens=29150,
-            cost_usd="0.0100",
-        ),
+        row(id="1", decision="reply", reply="Here you go", prompt_tokens=29150, cost_usd=figure),
+        row(id="2", decision="reply", reply="Glad it helped", prompt_tokens=29150, cost_usd="0.01"),
+    ]
+    report = build_report(rows, plug_cap=0.75, markers=MARKERS)
+    assert "nan" not in report.lower()
+    assert "inf" not in report.lower()
+    assert "$0.0100" in report
+    assert "across 1 of 2 priced calls" in report
+
+
+def test_an_unreadable_cost_is_unpriced_rather_than_a_crash():
+    """A review CSV is hand-editable, which is the whole point of it, so a cell that
+    holds a word has to be a row this summary skips rather than an exception at the
+    end of a long run. render/review_html.py already behaved this way; this module
+    raised ValueError, and the two disagreeing was the finding."""
+    rows = [
+        row(id="1", decision="reply", reply="Here you go", prompt_tokens=29150, cost_usd="abc"),
+        row(id="2", decision="reply", reply="Glad it helped", prompt_tokens=29150, cost_usd="0.01"),
     ]
     report = build_report(rows, plug_cap=0.75, markers=MARKERS)
     assert "$0.0100" in report
-    assert "priced calls" not in report
+    assert "across 1 of 2 priced calls" in report
+
+
+@pytest.mark.parametrize("rate", [float("nan"), float("inf")])
+def test_a_non_finite_rate_prices_nothing(rate):
+    """nan and inf are both TOML float literals, so `input_per_mtok = nan` is a rate
+    an operator can write. Neither is a price, and either one silently poisons every
+    figure downstream instead of raising."""
+    assert estimate_cost(USAGE, {"pricing": {**PRICING, "input_per_mtok": rate}}) is None
+    assert estimate_cost(USAGE, {"pricing": {**PRICING, "cache_write_per_mtok": rate}}) is None
 
 
 def test_repetition_flags_are_appended_and_cover_replies_only():

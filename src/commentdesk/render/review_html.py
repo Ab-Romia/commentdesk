@@ -19,6 +19,8 @@ import csv
 import html
 from pathlib import Path
 
+from commentdesk.report import parse_cost
+
 # Display order and headings. Deliberately not engine.OUT_FIELDS: the page must
 # render a CSV that a person has edited by hand, columns removed and all, and the
 # token counters belong in the CSV rather than in front of a reviewer.
@@ -177,14 +179,20 @@ def total_cost(rows) -> tuple[float, int]:
     The second number is reported rather than swallowed. A cost cell is empty
     whenever the model config had incomplete pricing, and a total that quietly
     skips those rows reads as complete when it is not.
+
+    parse_cost is shared with report.build_report rather than reimplemented here.
+    Two implementations of one job is how the two ended up disagreeing about what
+    unpriced means: this one counted `nan` as a real figure and printed a nan total,
+    the other crashed on an unreadable one. There is one rule now and both use it.
     """
     total = 0.0
     unpriced = 0
     for row in rows:
-        try:
-            total += float((row.get("cost_usd") or "").strip())
-        except ValueError:
+        cost = parse_cost(row.get("cost_usd"))
+        if cost is None:
             unpriced += 1
+        else:
+            total += cost
     return total, unpriced
 
 

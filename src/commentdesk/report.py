@@ -8,6 +8,8 @@ exchange rate, and the product reads more precise than either of its inputs.
 
 from __future__ import annotations
 
+import math
+
 from commentdesk.sanitize import find_repetition, is_plug
 
 # Without all three, the call cannot be priced at all.
@@ -23,8 +25,43 @@ def _is_rate(value: object) -> bool:
     is technically an int subclass in Python, but True must not count: it
     would price a call at 1.0 per million tokens rather than being caught as
     the non-rate it is.
+
+    nan and inf are both spellable in TOML, so `input_per_mtok = nan` is a rate an
+    operator can write by accident. Neither is a price, and either one turns every
+    figure downstream of it into nan or inf without raising anywhere.
     """
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def parse_cost(value: object) -> float | None:
+    """A row's cost as a finite float, or None when the row carries no usable figure.
+
+    One definition of "unpriced", used by build_report here and by
+    render.review_html.total_cost, which are the two places that total a column of
+    costs. They used to disagree: this module treated any non-blank cell as priced
+    and then crashed on `float("abc")`, while review_html caught the ValueError and
+    counted the row as unpriced. review_html is the one that reads hand-edited CSVs,
+    so review_html was right, and this is its rule made shared.
+
+    A real 0.0 is priced, not blank: a call, or a locally decided row, that truly
+    cost nothing is an answer. Only an absent, blank or unreadable cell is unpriced.
+    nan and inf are unreadable for this purpose: "total cost: $nan" is not a figure,
+    and one inf makes the whole run's total inf.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if math.isfinite(value) else None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        number = float(text)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def estimate_cost(usage: dict, model_cfg: dict) -> float | None:
@@ -57,19 +94,6 @@ def estimate_cost(usage: dict, model_cfg: dict) -> float | None:
         + usage["cache_write_tokens"] * cache_write_rate
     )
     return total / 1e6
-
-
-def _has_price(value: object) -> bool:
-    """True when a row carries an actual cost figure, real zero included.
-
-    A plain `value or ""` treats a genuine `0.0` (a call, or a locally
-    decided row, that truly cost nothing) as falsy and drops it to blank,
-    which then reads as unpriced rather than priced-at-zero. Only a value
-    that is actually absent or blank after stripping counts as unpriced.
-    """
-    if value is None:
-        return False
-    return str(value).strip() != ""
 
 
 def _as_int(value: object) -> int:
@@ -111,10 +135,9 @@ def build_report(rows: list[dict], plug_cap: float, markers: list[str]) -> str:
     calls = [r for r in rows if _as_int(r.get("prompt_tokens")) > 0]
     warm = sum(1 for r in calls if _as_int(r.get("cached_tokens")) > 0)
 
-    priced = [r for r in rows if _has_price(r.get("cost_usd"))]
+    priced = [cost for cost in (parse_cost(r.get("cost_usd")) for r in rows) if cost is not None]
     if priced:
-        total = sum(float(r["cost_usd"]) for r in priced)
-        cost_line = "total cost: $" + format(total, ".4f")
+        cost_line = "total cost: $" + format(sum(priced), ".4f")
         # "Made a call" reuses the same prompt_tokens > 0 notion as the cache
         # line above, rather than inventing a second one. A row that made no
         # call (a locally decided reply, never sent to a model) is not a gap

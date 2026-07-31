@@ -314,7 +314,15 @@ def run_pipeline(cfg, model_cfg, comments, knowledge_text, system_text, client):
         else:
             messages = build_messages(system_text, knowledge_text, row)
             result = process_comment(client, model_cfg, messages, behavior)
-            cost = estimate_cost(result["usage"], model_cfg)
+            # Priced only when a call actually reported usage. A rejected key or a
+            # connection failure leaves usage at EMPTY_USAGE, and pricing that
+            # arithmetic yields a real, confident 0.000000 for a row that was never
+            # billed anything. A whole run against a bad key then printed "total
+            # cost: $0.0000", which is the same false claim the empty-comment branch
+            # above exists to avoid. Blank is the truth. Zero is a claim.
+            cost = (
+                estimate_cost(result["usage"], model_cfg) if any(result["usage"].values()) else None
+            )
         usage = result["usage"]
         out_rows.append(
             {

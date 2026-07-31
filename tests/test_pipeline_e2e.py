@@ -258,3 +258,65 @@ def test_a_run_that_lost_rows_exits_non_zero(tmp_path, monkeypatch):
     assert rc == 0
     page = (out / "review.html").read_text(encoding="utf-8")
     assert 'class="row error"' in page
+
+
+class RefusingCompletions:
+    """A gateway that rejects every call before it can report any usage.
+
+    A wrong or expired key is the ordinary way to meet this, and it is the case the
+    existing error-path test above does not cover: an unparseable answer is still an
+    answer, billed and priced correctly. Nothing is billed here.
+    """
+
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        raise RuntimeError("401 Unauthorized")
+
+
+def test_a_run_where_no_call_was_billed_reports_no_cost_rather_than_zero(
+    tmp_path, monkeypatch, capsys
+):
+    """README: "Blank is the truth. Zero is a claim."
+
+    run_pipeline priced every non-empty comment whether or not a call ever returned.
+    A rejected key left usage at EMPTY_USAGE, estimate_cost multiplied that out to a
+    real 0.0, and the run printed "total cost: $0.0000" for a run that was never
+    billed anything. The empty-comment branch two lines up already got this right,
+    so two rows with no billable call were being treated in opposite ways.
+    """
+    config = build_product(tmp_path)
+    client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=RefusingCompletions()))
+    monkeypatch.setenv("CD_KEY_MAIN", "not-a-real-key")
+    monkeypatch.setattr(cli, "make_client", lambda model_cfg: client)
+    out = tmp_path / "out"
+
+    rc = cli.main(
+        [
+            "run",
+            "--config",
+            str(config),
+            "--comments",
+            str(tmp_path / "comments.csv"),
+            "--out",
+            str(out),
+        ]
+    )
+    assert rc == 1
+
+    _, rows = read_csv(out / "review.csv")
+    assert [r["decision"] for r in rows] == ["error", "error", "error", "skip"]
+    # Every row: blank, not "0.000000". Including the locally decided one, which was
+    # already blank and is what the error rows now match.
+    assert [r["cost_usd"] for r in rows] == ["", "", "", ""]
+
+    report = capsys.readouterr().out
+    assert "total cost: unavailable, pricing incomplete" in report
+    assert "$0.0000" not in report
+
+    # And the review page agrees rather than printing a confident zero of its own.
+    assert cli.main(["review", str(out / "review.csv"), "--out", str(out)]) == 0
+    page = (out / "review.html").read_text(encoding="utf-8")
+    assert "total cost: $0.0000 (4 of 4 rows carry no cost figure)" in page
