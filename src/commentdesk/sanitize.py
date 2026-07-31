@@ -54,7 +54,14 @@ def _core(word: str) -> str:
     made the list correct for one script and incomplete for every other, and it
     was missing the ASCII question mark besides. Unicode category P covers every
     punctuation mark in every script, so a closing word normalises the same way
-    whatever the reply is written in.
+    whatever the reply is written in. That claim carries one overreach: category
+    P also covers the ASCII apostrophe and the typographic right single quote,
+    and in languages that write a word final glottal stop with one of those
+    marks as a stand in, the letter is stripped along with it. The correct
+    letter for that sound, U+02BB, is category Lm and is not touched. In
+    find_repetition's use this only pushes two different words toward sharing a
+    key, which biases toward false positive clustering rather than a missed
+    repeat, so it does not weaken the guarantee the function exists for.
     """
     start, end = 0, len(word)
     while start < end and unicodedata.category(word[start]).startswith("P"):
@@ -70,16 +77,27 @@ def find_repetition(rows: list[dict], min_repeats: int = 3) -> list[str]:
     This is the one style rule a prompt structurally cannot enforce. "Do not end
     three replies the same way" is a claim about the whole set, and the model
     answers one comment at a time with no memory of the others, so nothing
-    upstream can see it. That makes this function the only backstop for the rule:
-    a false negative here has no safety net and the run ships with the repetition
-    in it. It reports for a person to break up. It never rewrites anything.
+    upstream can see it. That makes this function the only backstop for the rule
+    in a script written with spaces between words: a false negative here has no
+    safety net and the run ships with the repetition in it. It reports for a
+    person to break up. It never rewrites anything.
+
+    The backstop does not reach a script written without spaces between words,
+    such as Japanese, Chinese or Thai. Tokenizing is whitespace only, so a reply
+    in one of those scripts is a single token regardless of how many words it
+    holds, falls under the two word minimum below, and never enters either
+    bucket, however many replies in the run share the same ending. Seeing into
+    that would need a word segmentation library, which this project does not
+    take on as a dependency; the gap is a known and documented limit rather than
+    a defect this function is meant to close. See docs/limits.md.
     """
     openings: dict[str, list[str]] = {}
     closings: dict[str, list[str]] = {}
     for row in rows:
         words = (row.get("reply") or "").split()
         # A one word reply is its own opening and its own closing, and counting it
-        # in both buckets reports the same fact twice.
+        # in both buckets reports the same fact twice. This is also the branch a
+        # spaceless script always takes: see the docstring above.
         if len(words) < 2:
             continue
         row_id = str(row.get("id", ""))

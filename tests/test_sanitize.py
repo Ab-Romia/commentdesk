@@ -101,7 +101,15 @@ def test_two_repeats_are_normal_variation():
 
 def test_repetition_is_found_across_non_ascii_punctuation():
     """An ideographic full stop, a fullwidth exclamation mark, and no mark at all
-    must all normalise to the same closing word."""
+    must all normalise to the same closing word.
+
+    This exercises punctuation category stripping across scripts, nothing more.
+    The space before the closing word in each reply below is artificial: real
+    Japanese carries no space between words, and it is inserted here only so the
+    whitespace tokenizer sees two tokens instead of one. It is not a claim that
+    find_repetition detects repetition in naturally written Japanese; it does
+    not, see test_repetition_is_invisible_in_a_language_without_word_spaces.
+    """
     from commentdesk.sanitize import find_repetition
 
     rows = [
@@ -111,6 +119,29 @@ def test_repetition_is_found_across_non_ascii_punctuation():
     ]
     flags = find_repetition(rows)
     assert any(f.startswith("closing") and "1, 2, 3" in f for f in flags), flags
+
+
+def test_repetition_is_invisible_in_a_language_without_word_spaces():
+    """Known limit, not a bug: whitespace tokenizing cannot see into a script
+    written without spaces between words.
+
+    Naturally written Japanese carries no space between words, so the whole
+    reply below is one token. find_repetition requires at least two tokens
+    before a reply enters either bucket, so three identical replies, repeated
+    on purpose to make the case as strong as possible, produce no flag at all.
+    Seeing into this would need a word segmentation library, which this project
+    does not take on as a dependency. The gap is documented in docs/limits.md
+    rather than fixed here; this test pins the behavior so it stays visible
+    instead of being mistaken for coverage the function does not have.
+    """
+    from commentdesk.sanitize import find_repetition
+
+    rows = [
+        {"id": "1", "reply": "お役に立てて嬉しいです"},
+        {"id": "2", "reply": "お役に立てて嬉しいです"},
+        {"id": "3", "reply": "お役に立てて嬉しいです"},
+    ]
+    assert find_repetition(rows) == []
 
 
 def test_leading_punctuation_does_not_split_an_opening():
