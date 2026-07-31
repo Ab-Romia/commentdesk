@@ -130,8 +130,11 @@ this tool talks to.
   grep -rniE 'youtube|tiktok|instagram|facebook|googleapis|oauth' src/
   ```
 
-  returns nothing, and `tests/test_generality.py::test_the_package_contains_no_client_for_any_platform` runs the
-  same check on every push.
+  returns nothing, and `tests/test_generality.py::test_the_package_contains_no_client_for_any_platform` runs an
+  equivalent check on every push: that one walks the AST for exact import names and
+  exact hostnames in string constants, where the grep above is a case-insensitive
+  substring sweep over every byte of `src/`, comments included. Both pass. Neither
+  is the other.
 - **It does not retrieve.** The whole knowledge document goes into the cached prompt
   prefix. That is the right answer while the document fits the context window and the
   wrong one afterwards. `docs/architecture.md` says where the line is.

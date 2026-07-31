@@ -23,6 +23,14 @@ from .render.review_html import blind_label, load_row_sets, render_review
 from .report import build_report
 from .sources import SourceError, load_knowledge
 
+# transcribe_pdf is imported at module scope, not lazily inside cmd_ingest. The
+# lazy version and its ImportError handler were both dead: sources/__init__.py
+# imports pdf_vision eagerly to register the handler, so the line above has already
+# loaded it before cmd_ingest can run. The module costs nothing to import either,
+# because pymupdf is imported inside render_pages and a missing extra surfaces
+# there as a SourceError, which cmd_ingest already catches.
+from .sources.pdf_vision import transcribe_pdf
+
 SAFE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
@@ -289,12 +297,6 @@ def cmd_ingest(args) -> int:
         return _fail(
             f"missing env var(s): {', '.join(missing)} (put them in .env next to {args.config})"
         )
-    try:
-        # sources/pdf_vision.py depends on the optional pdf extra, so the import
-        # is lazy: ingest is the only subcommand that ever needs it.
-        from .sources.pdf_vision import transcribe_pdf
-    except ImportError as e:
-        return _fail(f"pdf ingestion needs the optional extra: pip install commentdesk[pdf] ({e})")
     client = make_client(model_cfg)
     try:
         written = transcribe_pdf(Path(args.pdf), out, model_cfg, client)
@@ -304,15 +306,27 @@ def cmd_ingest(args) -> int:
     return 0
 
 
-def _common(parser, out_default="out", out_help="output directory"):
+# --config and --out are added per subcommand rather than to all six, because two of
+# the six never read the one they were given: cmd_review never looks at args.config
+# and cmd_ui never looks at args.out. Both still appeared in --help, which offers an
+# operator a flag that changes nothing.
+def _config_arg(parser):
     parser.add_argument(
         "--config",
         default="config.toml",
         help="path to config.toml. Every path inside it is "
         "resolved against the directory holding it.",
     )
-    parser.add_argument("--out", default=out_default, help=out_help)
     return parser
+
+
+def _out_arg(parser, default="out", text="output directory"):
+    parser.add_argument("--out", default=default, help=text)
+    return parser
+
+
+def _common(parser, out_default="out", out_help="output directory"):
+    return _out_arg(_config_arg(parser), out_default, out_help)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -330,7 +344,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     bake.add_argument("--comments", default="comments.csv")
 
-    review = _common(subs.add_parser("review", help="render result CSVs into one review page"))
+    # Reads CSVs named on the command line and nothing out of a config, so it takes
+    # no --config.
+    review = _out_arg(subs.add_parser("review", help="render result CSVs into one review page"))
     review.add_argument("csvs", nargs="+")
     review.add_argument(
         "--approved",
@@ -351,7 +367,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chat.add_argument("--author", default="")
 
-    served = _common(subs.add_parser("ui", help="local test interface"))
+    # Writes no file, so it takes no --out.
+    served = _config_arg(subs.add_parser("ui", help="local test interface"))
     # There is deliberately no --host. The page reads out the whole knowledge document
     # and spends the configured key on request, and the bind address is half of what
     # stops that reaching anyone else. A flag offering to bind elsewhere was a one word
@@ -385,7 +402,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help(sys.stderr)
         return 2
     # The key file lives beside the config, on the same rule as every other path
-    # the config names. A .env in the working directory still works.
-    env_path = Path(args.config).resolve().parent / ".env"
+    # the config names. A .env in the working directory still works. `review` takes
+    # no --config, because it reads CSVs named on the command line and nothing out
+    # of a config, so it falls back to the working directory like any other caller.
+    config = getattr(args, "config", None)
+    env_path = Path(config).resolve().parent / ".env" if config else Path(".env")
     load_env(env_path if env_path.exists() else ".env")
     return HANDLERS[args.command](args)

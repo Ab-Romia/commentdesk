@@ -52,7 +52,7 @@ def render_pages(pdf, dpi=150):
         import pymupdf
     except ImportError as exc:
         raise SourceError(
-            "rendering a PDF needs the pdf extra: pip install commentdesk[pdf]"
+            'rendering a PDF needs the pdf extra: uv tool install "commentdesk[pdf]"'
         ) from exc
     doc = pymupdf.open(Path(pdf))
     try:
@@ -74,7 +74,11 @@ def transcribe_batch(client, model_cfg, pngs):
     resp = client.chat.completions.create(
         model=model_cfg["model"],
         messages=[{"role": "user", "content": content}],
-        extra_body=model_cfg.get("params", {}),
+        # `or {}` rather than a default, matching engine.call_model: a config that
+        # writes `params =` with nothing after it hands over None, and a default
+        # only covers the key being absent. Unreachable behind load_config, and
+        # this file is the worked example docs/sources.md points a reader at.
+        extra_body=model_cfg.get("params") or {},
     )
     return (resp.choices[0].message.content or "").strip()
 

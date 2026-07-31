@@ -47,7 +47,10 @@ def _module_paths() -> list[Path]:
     return sorted(PACKAGE_ROOT.rglob("*.py"))
 
 
-@pytest.mark.parametrize("module", _module_paths(), ids=lambda p: p.name)
+# Relative to the package rather than p.name: three modules are called __init__.py,
+# so p.name collapsed them into __init__.py0, __init__.py1 and __init__.py2, and a
+# failing id named none of the three.
+@pytest.mark.parametrize("module", _module_paths(), ids=lambda p: str(p.relative_to(PACKAGE_ROOT)))
 def test_module_holds_no_non_ascii_literal(module: Path) -> None:
     source = module.read_text(encoding="utf-8")
     offenders = non_ascii_literals(source, str(module))

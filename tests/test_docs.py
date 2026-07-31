@@ -206,10 +206,43 @@ def test_community_files_exist_and_state_the_hard_rules():
         assert rule in contributing.lower(), f"CONTRIBUTING.md omits: {rule}"
     assert "make check" in contributing
 
+    # A bare `"@" in text` passed on any at-sign anywhere in the file, including one
+    # inside a decorator in a fenced code block. The point of both assertions is that
+    # somebody reachable is named, so the handle is what is checked.
+    contact = "@Ab-Romia"
+
     security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
     assert "Security Advisories" in security
-    assert "@" in security, "SECURITY.md needs a fallback contact"
+    assert contact in security, "SECURITY.md needs a fallback contact"
+    assert "loopback" in security, "SECURITY.md must describe what keeps the ui local"
 
     conduct = (ROOT / "CODE_OF_CONDUCT.md").read_text(encoding="utf-8")
     assert "Contributor Covenant" in conduct
-    assert "@" in conduct, "CODE_OF_CONDUCT.md needs an enforcement contact"
+    assert contact in conduct, "CODE_OF_CONDUCT.md needs an enforcement contact"
+
+
+# The claims the README is not allowed to make, kept in one place and enforced over
+# the docs as well as over the README. test_readme.py enforced them against README.md
+# only: the eight documents were clean by care, and nothing kept them so.
+#
+# `bot_disclosure_text` survives the `\bbots?\b` pattern because `_` is a word
+# character, so `\b` does not match between `bot` and `_disclosure`. That is correct
+# and deliberate: the setting name is an identifier, not a claim. Do not "fix" the
+# pattern to catch it.
+FORBIDDEN_CLAIMS = [
+    r"\bbots?\b",
+    r"\bauto-?repl(y|ies)\b",
+    r"\bengagement\b",
+    r"\bgrowth\b",
+    r"\bautonomous(ly)?\b",
+    r"\bguardrails?\b",
+    r"\bcheapest\b",
+    r"integrat",
+]
+
+
+@pytest.mark.parametrize("path", sorted(DOCS.glob("*.md")), ids=lambda p: p.name)
+def test_a_doc_makes_no_claim_the_project_cannot_support(path):
+    lower = path.read_text(encoding="utf-8").lower()
+    hits = [pattern for pattern in FORBIDDEN_CLAIMS if re.search(pattern, lower)]
+    assert hits == [], f"{path.name} uses forbidden claim language: {hits}"

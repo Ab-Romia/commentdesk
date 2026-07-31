@@ -50,9 +50,10 @@ EMPTY_USAGE = {
     "cache_write_tokens": 0,
 }
 
-# The configuration always supplies a separator. This fallback exists so that a
-# partial behavior table, which is what the local UI can hand over mid edit, does
-# not take down the call path.
+# The configuration always supplies a separator: load_config validates it non-empty,
+# and the local UI's reload path rebuilds through load_config too, so there is no
+# route that hands over a partial behavior table. This is belt and braces for a
+# caller that assembles a behavior dict by hand, which nothing in the package does.
 DEFAULT_SEPARATOR = ", "
 
 

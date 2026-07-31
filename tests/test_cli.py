@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import argparse
 import json
 
 import pytest
@@ -112,6 +113,33 @@ def build_product(tmp_path, extra=""):
 def clear_keys(monkeypatch):
     monkeypatch.delenv("CD_KEY_MAIN", raising=False)
     monkeypatch.delenv("CD_KEY_ALT", raising=False)
+
+
+def test_every_subcommand_offers_only_the_flags_it_reads():
+    """`--config` and `--out` used to be added to all six subcommands uniformly, and
+    two of the six never read the one they were given: cmd_review never looks at
+    args.config and cmd_ui never looks at args.out. Both still showed up in --help,
+    which offers an operator a flag that changes nothing about what happens."""
+    from commentdesk.cli import build_parser
+
+    parser = build_parser()
+    takes = {
+        "run": {"--config", "--out"},
+        "bakeoff": {"--config", "--out"},
+        "review": {"--out"},
+        "chat": {"--config", "--out"},
+        "ui": {"--config"},
+        "ingest": {"--config", "--out"},
+    }
+    # The one subparsers action argparse builds for `subs`.
+    (action,) = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+    for name, expected in takes.items():
+        offered = {
+            option
+            for sub_action in action.choices[name]._actions
+            for option in sub_action.option_strings
+        }
+        assert offered & {"--config", "--out"} == expected, f"{name} offers the wrong flags"
 
 
 def test_no_subcommand_prints_usage_and_returns_two(capsys):
