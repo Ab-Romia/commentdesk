@@ -250,3 +250,30 @@ def test_readme_run_and_review_commands_actually_produce_the_files_they_claim(
     assert cli.main(approved_argv) == 0
     approved_page = review_html.read_text(encoding="utf-8")
     assert "DRAFT" not in approved_page, "--approved should drop the draft banner"
+
+
+def test_readme_carries_the_four_legal_blocks(text):
+    for heading in (
+        "## What this does, and what it does not do",
+        "## What you supply",
+        "## Transparency",
+        "## About any cost figures",
+    ):
+        assert heading in text, f"README is missing the block: {heading}"
+
+
+def test_readme_disclaims_affiliation(text):
+    assert "not affiliated with" in text.lower()
+
+
+def test_readme_puts_responsibility_for_the_source_document_on_the_operator(text):
+    section = text.split("## What you supply", 1)[1].split("\n## ", 1)[0]
+    assert "you have the right" in section.lower()
+    assert "does not check" in section.lower()
+
+
+def test_the_legal_blocks_sit_above_the_origin_note(text):
+    # An origin note is a story. These are terms. Terms come first.
+    assert text.index("## What this does, and what it does not do") < text.index(
+        "## Where this came from"
+    )

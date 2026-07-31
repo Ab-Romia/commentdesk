@@ -153,6 +153,89 @@ this tool talks to.
 | `docs/platform-policy.md` | which clause each safety property exists for |
 | `docs/limits.md` | what this cannot do, stated before you find out |
 
+## What this does, and what it does not do
+
+commentdesk drafts. It does not send, schedule, queue, or hold a credential for
+anywhere a draft could be sent. Every draft leaves this tool as a row in a CSV and a
+card on an HTML page, and the only way one reaches an audience is a person reading it
+and choosing to send it.
+
+That person is responsible for what they send. The tool has no view on whether a draft
+is accurate, appropriate, or permitted where they are about to publish it, and it is
+not capable of forming one. `load_config` validates the shape of your configuration
+and never its truth: a wrong price passes straight through, on purpose, to the
+reviewer who can recognize it.
+
+This is a design decision, not a missing feature. `docs/platform-policy.md` maps this
+behavior, clause by clause, to the platform and legal provisions it was built to
+satisfy; that mapping is not repeated here.
+
+This project is not affiliated with, authorized by, maintained by, or endorsed by
+Google, YouTube, Meta, Instagram, or TikTok. Platform names appear in this repository
+only to cite a published policy clause or as an example configuration value. Anything
+you publish with this tool's help is your responsibility, under the terms of whichever
+platform you publish on.
+
+## What you supply
+
+You supply the source document. Everything a draft states as fact comes from it,
+which makes it the single most important input and the one this project has the
+least ability to check.
+
+By pointing commentdesk at a document you confirm that you have the right to use it
+this way: that you own it, licensed it, or are otherwise permitted to send its
+contents to the model provider you have configured. The tool does not check
+ownership, licensing, copyright status, or whether the document contains personal
+data, and it cannot. commentdesk includes, distributes, and licenses no book, course,
+or other work of its own; the example products in this repository are fictional,
+written for this project, and not a real product for you to reuse.
+
+The same applies to the comments you feed it. They were written by people. Exporting
+them, sending them to a provider, and storing the output CSV are all processing
+decisions you are making, under whatever law applies to you.
+
+Two defaults exist to keep those inputs where you put them:
+
+- Source text, PDFs and CSVs are gitignored by class rather than by filename, so an
+  accidental commit takes deliberate effort. `knowledge/` and any `*.pdf` file are
+  covered by that rule, and they should stay that way in any fork or deployment of
+  this project.
+- Every model entry is required to send `provider.data_collection = "deny"`, and a
+  test asserts it on every entry. Whether the provider honors it is between you and
+  the provider. The request is the part this project controls, and it makes that part
+  unambiguous.
+
+## Transparency
+
+Drafts are written by software. Pretending otherwise is dishonest and, in a growing
+number of jurisdictions, unlawful.
+
+`bot_disclosure_text` is a required, non-empty setting: the exact sentence used when
+someone asks whether a person wrote a reply. It is validated non-empty and there is
+no evasive mode; an earlier version of this design had one and it was removed rather
+than defaulted off, because a setting that exists is a setting somebody eventually
+turns on.
+
+A human reads every draft, edits it, and takes editorial responsibility for it before
+anything is sent. Whether the disclosure sentence alone satisfies your obligations
+depends on where you are and what you publish, and this README is not legal advice.
+Any deployment obligation that follows from publishing a reply belongs to you, the
+operator, not to this repository. `docs/platform-policy.md` maps each property here to
+the specific clause it was built against, so you can check the reasoning rather than
+trust this summary.
+
+## About any cost figures
+
+Any rate that appears in a config file or a document in this repository is a
+point-in-time observation, dated where it appears, and never a quote. Providers change
+pricing without notice, and a number that was true on the date it was written can be
+wrong by the time you read it. Verify against your provider's current rates before you
+plan around any figure here.
+
+Cost per row is computed from the token counts the API actually returned, never from
+an estimate, and it is left blank rather than set to zero when pricing is incomplete.
+Blank is the truth. Zero is a claim.
+
 ## Where this came from
 
 This started as a private commission. The person on the other end had a real product,
