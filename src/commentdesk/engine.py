@@ -146,7 +146,7 @@ def call_model(client, model_cfg: dict, messages: list) -> tuple[str, dict]:
         "prompt_tokens": getattr(reported, "prompt_tokens", 0) or 0,
         "completion_tokens": getattr(reported, "completion_tokens", 0) or 0,
         "cached_tokens": (getattr(details, "cached_tokens", 0) or 0) if details else 0,
-        "cache_write_tokens": ((getattr(details, "cache_write_tokens", 0) or 0) if details else 0),
+        "cache_write_tokens": (getattr(details, "cache_write_tokens", 0) or 0) if details else 0,
     }
     return text, usage
 
@@ -171,6 +171,9 @@ def process_comment(client, model_cfg: dict, messages: list, behavior: dict) -> 
     last_reason = ""
     usage_total = dict(EMPTY_USAGE)
     raw_text = ""
+    # Not dead: RETRY_WAITS is a fixed non-empty tuple so the loop below always
+    # runs, but pyright cannot prove that from range(2 + len(RETRY_WAITS)) alone
+    # and flags `attempt` as possibly unbound at the final return without this.
     attempt = 0
     backoffs = 0
     started = time.monotonic()

@@ -252,6 +252,14 @@ def test_process_comment_nudges_once_and_never_twice():
     assert out["decision"] == "error"
     assert len(client.calls) == 2
     assert client.calls[1]["messages"][-1]["content"] == RETRY_NUDGE
+    # Both attempts were billed even though neither parsed. An error row that
+    # only counted the last attempt would understate what the run actually cost.
+    assert out["usage"] == {
+        "prompt_tokens": 58300,
+        "completion_tokens": 240,
+        "cached_tokens": 58000,
+        "cache_write_tokens": 0,
+    }
 
 
 def test_process_comment_recovers_on_the_nudge():
@@ -352,3 +360,11 @@ def test_a_reply_emptied_by_sanitation_does_not_ship_as_a_reply():
     assert out["reply_text"] == ""
     # The model's read of the comment is still the most useful thing in the row.
     assert out["reason"] == "praise"
+    # Both attempts were billed even though the row ships as an error. The
+    # sanitised-empty path discards the draft, not the call it took to get it.
+    assert out["usage"] == {
+        "prompt_tokens": 58300,
+        "completion_tokens": 240,
+        "cached_tokens": 58000,
+        "cache_write_tokens": 0,
+    }
