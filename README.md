@@ -54,12 +54,11 @@ commentdesk review out/review.csv --out out
 
 `run` writes `out/review.csv` and prints a run report: how many replies, skips and
 escalates, what the run cost, and which drafts repeat each other. `review` turns the
-CSV into `out/review.html`, the page below. The page carries a draft banner until you
-pass `--approved`, which you pass after reading every row and not before.
-
-![The review page: one table, one row per comment, with decision, reason, draft reply and model, and one cost total for the file](docs/img/review-page.png)
-
-Produced by:
+CSV into `out/review.html`. Open it and you get one table, one row per comment, with
+the decision, the reason, the draft reply and the model that produced it, plus one
+cost total for the whole file rather than a column of per-row figures in front of a
+reviewer. The page carries a draft banner until you pass `--approved`, which you pass
+after reading every row and not before:
 
 ```bash
 commentdesk review out/review.csv --out out --approved
@@ -71,6 +70,11 @@ Two more things you will want on day one:
 commentdesk chat --config config.toml    # one comment at a time, with the full trace
 commentdesk ui   --config config.toml    # the same, in a page on 127.0.0.1 only
 ```
+
+Both send one comment through the exact code a batch run uses and show the decision,
+the draft, the token counts and the cost, without writing a CSV. `docs/writing-a-voice.md`
+has a short section on using them to check an edit to your voice file before spending
+on a full run.
 
 And two you will want once:
 
@@ -130,15 +134,19 @@ this tool talks to.
 - **It does not check whether your facts are true.** `load_config` validates shape and
   never content. A wrong price travels straight through to a human reviewer, which is
   the correct place to catch it.
-- **`plug_cap` is an alarm threshold.** It reports the share of drafts that carried a
-  link or a price and flags a run that goes over. Nothing stops mid-run. What holds
-  the rate down is what you wrote in your voice file.
+- **`plug_cap` is an alarm threshold.** It reports the share of replies matching one of
+  your configured `plug_markers`, a case-insensitive substring test, and flags a run
+  that goes over. It does not know what a link or a price looks like on its own; it
+  only recognizes the exact markers you listed. Nothing stops mid-run. What holds the
+  rate down is what you wrote in your voice file. `docs/limits.md` covers the false
+  positives and false negatives that come with a substring test.
 
 ## Documentation
 
 | File | What it covers |
 |---|---|
 | `docs/architecture.md` | the cached prefix, why there is no retrieval, and where that stops working |
+| `docs/configuration.md` | every key `config.toml` accepts, which are required, and what each does |
 | `docs/writing-a-voice.md` | writing your rules and examples, in your language, placeholder by placeholder |
 | `docs/sources.md` | adding a knowledge source handler |
 | `docs/bakeoff.md` | comparing models blind, and one parameter that lies |
