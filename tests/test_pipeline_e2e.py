@@ -3,7 +3,7 @@ import csv
 import types
 
 from commentdesk import cli
-from commentdesk.engine import OUT_FIELDS
+from commentdesk.engine import EMPTY_COMMENT_REASON, OUT_FIELDS
 
 CONFIG = """
 [product]
@@ -76,8 +76,9 @@ It is 180 pages and costs eighteen dollars.
 
 COMMENTS = """id,platform,author,comment,video_title
 1,video-site,sam,how much does it cost,foraging clip
-2,video-site,alex,first,foraging clip
+2,video-site,alex,my order never arrived and I want a refund,foraging clip
 3,photo-site,jo,does it cover mushrooms,mushroom clip
+4,video-site,taylor,,foraging clip
 """
 
 CANNED = [
@@ -86,7 +87,7 @@ CANNED = [
         ' "reply_text": "Eighteen dollars, and here is the link:'
         ' https://example.com/field-guide"}'
     ),
-    '{"decision": "skip", "reason": "no question in it", "reply_text": ""}',
+    '{"decision": "escalate", "reason": "refund request needs a person", "reply_text": ""}',
     (
         '{"decision": "reply", "reason": "asks about coverage",'
         ' "reply_text": "Yes, it has a chapter on three common mushrooms."}'
@@ -107,6 +108,9 @@ class FakeCompletions:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
+        # Calls past the end of responses replay the last entry. That is what
+        # lets the single unparseable string in test_a_run_that_lost_rows_exits_non_zero
+        # stand in for every retry attempt on every row.
         index = min(len(self.calls) - 1, len(self.responses) - 1)
         # The first call pays to write the prefix into the cache, later calls read
         # it. The figures only have to be plausible: what is under test is that
@@ -171,16 +175,24 @@ def test_pipeline_runs_end_to_end_and_the_page_renders_from_it(tmp_path, monkeyp
 
     fields, rows = read_csv(out / "review.csv")
     assert fields == OUT_FIELDS
-    assert [r["id"] for r in rows] == ["1", "2", "3"]
-    assert [r["decision"] for r in rows] == ["reply", "skip", "reply"]
+    assert [r["id"] for r in rows] == ["1", "2", "3", "4"]
+    assert [r["decision"] for r in rows] == ["reply", "escalate", "reply", "skip"]
     assert all(r["model"] == "test/model-small" for r in rows)
     assert all(r["error"] == "" for r in rows)
     assert float(rows[0]["cost_usd"]) > 0
     # The first call writes the prefix into the cache, the rest read it.
     assert rows[0]["cached_tokens"] == "0"
     assert rows[1]["cached_tokens"] == "900"
+    # Row 4's comment is empty: decided locally, never sent to the model, so
+    # its reason names that path and its cost is unknown rather than free.
+    # Compared by equality, not truthiness, so a stray "0.000000" could not
+    # pass as the blank this is supposed to be.
+    assert rows[3]["reason"] == EMPTY_COMMENT_REASON
+    assert rows[3]["cost_usd"] == ""
 
     calls = client.chat.completions.calls
+    # Three calls, not four: the row with an empty comment never reaches the
+    # model at all.
     assert len(calls) == 3
     # The property the whole prompt design rests on: the system block is
     # byte-identical on every call in a run, so the provider serves it from cache.
@@ -199,10 +211,15 @@ def test_pipeline_runs_end_to_end_and_the_page_renders_from_it(tmp_path, monkeyp
     page = (out / "review.html").read_text(encoding="utf-8")
     assert "Field guide review" in page
     assert "how much does it cost" in page
+    assert "my order never arrived" in page
     assert "does it cover mushrooms" in page
     assert "DRAFT, NOT APPROVED" in page
-    assert "3 comments: reply=2, skip=1" in page
+    assert "4 comments: escalate=1, reply=2, skip=1" in page
     assert 'dir="auto"' in page
+    assert 'class="row escalate"' in page
+    # The locally decided row costs nothing to run, and the page has to say so
+    # rather than silently fold a zero into the total.
+    assert "(1 of 4 rows carry no cost figure)" in page
 
 
 def test_a_run_that_lost_rows_exits_non_zero(tmp_path, monkeypatch):
@@ -226,9 +243,15 @@ def test_a_run_that_lost_rows_exits_non_zero(tmp_path, monkeypatch):
 
     fields, rows = read_csv(out / "review.csv")
     assert fields == OUT_FIELDS
-    assert [r["decision"] for r in rows] == ["error", "error", "error"]
-    assert all(r["error"] for r in rows)
-    # One nudge retry per row and no more: a second nudge never helps.
+    # The first three rows reach the model and fail to parse; the fourth has
+    # an empty comment and is decided locally regardless of how the model
+    # behaves, so it is never an "error" row at all.
+    assert [r["decision"] for r in rows] == ["error", "error", "error", "skip"]
+    assert all(r["error"] for r in rows[:3])
+    assert rows[3]["error"] == ""
+    assert rows[3]["reason"] == EMPTY_COMMENT_REASON
+    # One nudge retry per row that reaches the model, and no more: a second
+    # nudge never helps. The empty-comment row adds no call at all.
     assert len(client.chat.completions.calls) == 6
 
     rc = cli.main(["review", str(out / "review.csv"), "--out", str(out)])
