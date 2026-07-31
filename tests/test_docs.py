@@ -7,6 +7,7 @@ strips from prose. The content tests catch a document quietly losing the sentenc
 was written for.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -91,3 +92,22 @@ def test_sources_doc_documents_every_registered_source():
     assert "@register(" in text
     assert "def load_" in text
     assert "refuses to overwrite" in text
+
+
+def test_bakeoff_doc_carries_no_unmeasured_figures():
+    """No table and no quoted numbers until they are re-measured.
+
+    The method is publishable now. Any specific figure is not, because none has been
+    measured against the example products in this repository.
+    """
+    text = read_doc("bakeoff.md")
+    table_lines = [line for line in text.splitlines() if line.strip().startswith("|")]
+    assert table_lines == [], "bakeoff.md must not carry a results table yet"
+    assert "re-verify" in text
+    assert "data_collection" in text
+    assert "blind" in text
+    # Prices and token counts are the figures that must not appear before measurement.
+    assert not re.search(r"\$\s*\d", text), "a dollar figure appears before measurement"
+    assert not re.search(r"\b\d[\d,]*\s*(tokens|ms|seconds)\b", text), (
+        "a measured quantity appears before measurement"
+    )
