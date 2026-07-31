@@ -10,6 +10,7 @@ import json
 import re
 import shlex
 import shutil
+import subprocess
 import types
 from pathlib import Path
 
@@ -65,8 +66,26 @@ def test_readme_never_says_plug_cap_limits_anything(text):
 
 
 def test_readme_states_the_grep_checkable_guarantee(text):
+    """The README dares the reader to grep for a platform client. Quoting the word
+    "grep" is not evidence; running the exact command the prose shows is. The
+    pattern is extracted from the README itself, not copied here by hand, so a
+    pattern loosened in a future edit fails this test instead of sliding through.
+    """
     assert "There is no code path that posts" in text
-    assert "grep" in text
+    # The grep lives inside a bullet, so its fenced block is indented.
+    match = re.search(r"```bash\n[ \t]*(grep[^\n]+)\n", text)
+    assert match, "no grep command found in the README"
+    # Tokenized and run without a shell: the command comes from this repository's
+    # own README, not from anything external, but there is no reason to hand a
+    # shell a string to parse when shlex can hand subprocess a plain argv list.
+    argv = shlex.split(match.group(1))
+    assert argv[0] == "grep", f"expected the README's command to start with grep: {argv!r}"
+    result = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, check=False)
+    assert result.stdout == "", f"the README's own grep command found something: {result.stdout}"
+    assert result.returncode == 1, (
+        f"expected the grep to match nothing (exit 1), got exit {result.returncode}: "
+        f"{result.stderr}"
+    )
 
 
 def test_readme_credits_promptfoo(text):

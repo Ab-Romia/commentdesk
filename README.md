@@ -19,15 +19,19 @@ Triage social-media comments from a CSV and draft grounded replies for a person 
 - **A drafting step tied to one document you supply.** That document is the only thing
   a draft may state as fact. A question it does not answer becomes `escalate`, not a
   guess.
-- **A review artefact.** One page, one card per comment, carrying the decision, the
-  reason, the draft, the model that produced it, the tokens and the cost. You edit and
-  send from there.
+- **A review artefact.** One table, one row per comment, carrying the decision, the
+  reason and the draft alongside the platform, the author and the model that produced
+  it. Cost appears once per file, as a total the run actually billed, not per row: the
+  per-row token counts and cost live in the CSV underneath the page, not in front of a
+  reviewer. You read it, edit elsewhere, and send by hand.
 
 ## Requirements
 
 Python 3.11 or newer, and an API key for any OpenAI-compatible chat endpoint.
 
 ## Install
+
+commentdesk is not on PyPI yet. Once it ships:
 
 ```bash
 uv tool install commentdesk
@@ -53,7 +57,7 @@ escalates, what the run cost, and which drafts repeat each other. `review` turns
 CSV into `out/review.html`, the page below. The page carries a draft banner until you
 pass `--approved`, which you pass after reading every row and not before.
 
-![The review page, one card per comment, with decision, reason, draft reply, model, tokens and cost](docs/img/review-page.png)
+![The review page: one table, one row per comment, with decision, reason, draft reply and model, and one cost total for the file](docs/img/review-page.png)
 
 Produced by:
 
@@ -86,9 +90,23 @@ commentdesk bakeoff --config config.toml --comments comments.csv --out out
 Nothing in the engine holds human-language copy. No string literal under `src/`
 contains a non-ASCII character, and a test walks the AST of every module to keep it
 that way. Your language lives in your files, and you never open a `.py` file to change
-it. `tests/fixtures/nazzef-kit-ar` is a fourth product, config, voice, worked examples
+it. `tests/fixtures/nazzef-kit-ar` is a third product, config, voice, worked examples
 and comments, written entirely in Arabic, and it passes the same acceptance tests as
 the two English examples above. `docs/writing-a-voice.md` is the chapter to read next.
+
+## What leaves your machine
+
+Every comment and the whole knowledge document travel to whichever endpoint
+`[model].base_url` names, as part of the request that drafts a reply. That is the one
+place your data leaves the machine running commentdesk.
+
+`load_config` refuses to start a run unless every model entry, the default one and
+every `[[bakeoff.models]]` entry alike, sets `params.provider.data_collection = "deny"`
+in its own table. That is an instruction sent with the request, not something this tool
+can enforce once the request has left it: whether the endpoint honors it is between you
+and whoever operates it. Nothing else about your product, your audience or their
+comments leaves this machine: no telemetry, no analytics call, and no second server
+this tool talks to.
 
 ## What it deliberately does not do
 
