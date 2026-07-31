@@ -118,6 +118,62 @@ def test_readme_badges_are_reference_style_and_defined_at_the_bottom(text):
     assert first_def > text.index("## License"), "badge definitions must sit at the bottom"
 
 
+def test_no_badge_in_the_row_depends_on_a_release_that_has_not_happened(text):
+    """Three of the five badges rendered "package or version not found", because the
+    package is not on PyPI and shields.io reads PyPI for the version, the Python
+    versions and the license alike. A front page whose own badges say the package is
+    missing is a bad first thirty seconds.
+
+    The PyPI badge is commented out rather than deleted, and its definitions are kept,
+    so restoring it after the first release is one line. HTML comments are stripped
+    before the row is read, which is what lets that commented line sit in the file
+    without this test counting it as displayed.
+    """
+    visible = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    labels = set()
+    for match in re.finditer(r"\[!\[[^\]]+\]\[([a-z-]+)\]\]\[([a-z-]+)\]", visible):
+        labels.update(match.groups())
+    assert labels, "no displayed badges found"
+
+    definitions = dict(re.findall(r"(?m)^\[([a-z-]+)\]:\s+(\S+)$", text))
+    for label in sorted(labels):
+        assert "/pypi/" not in definitions[label], (
+            f"badge {label} reads PyPI, which has no commentdesk to read yet"
+        )
+    # Kept, so the restore is an edit rather than a rewrite.
+    assert "pypi-badge" in definitions
+    assert "pypi-link" in definitions
+
+
+def test_the_install_section_leads_with_something_that_works_today(text):
+    """`uv tool install commentdesk` fails: there is nothing on PyPI to install. The
+    section led with it under "once it ships", which is a front page telling a reader
+    to run a command that does not work."""
+    section = _section(text, "## Install", "## The whole thing")
+    blocks = _bash_blocks(section)
+    # The first command a reader meets has to be one they can run now.
+    assert "git+https://github.com/Ab-Romia/commentdesk.git" in blocks[0]
+    assert "not on PyPI yet" in section
+    # The PyPI form is kept and clearly marked, not deleted.
+    assert "uv tool install commentdesk\n" in blocks[-1]
+    assert "Once the first release is published" in section
+
+
+def test_the_env_example_documents_the_variable_and_not_a_value():
+    """The .gitignore carries a `!.env.example` negation for a file that did not
+    exist. A public repository that tells people to put a key in .env owes them a
+    committed example naming the variable, and only the variable."""
+    example = ROOT / ".env.example"
+    assert example.is_file(), ".gitignore anticipates .env.example; it has to exist"
+    text = example.read_text(encoding="utf-8")
+    assert "OPENROUTER_API_KEY=" in text
+    assert "docs/configuration.md" in text
+    for line in text.splitlines():
+        if line.strip() and not line.startswith("#"):
+            key, _, value = line.partition("=")
+            assert value.strip() == "", f"{key} in .env.example carries a value"
+
+
 def test_readme_quickstart_paths_exist(text):
     example = ROOT / "examples" / "field-guide-book"
     for rel in (

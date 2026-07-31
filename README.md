@@ -3,9 +3,16 @@
 Triage social-media comments from a CSV and draft grounded replies for a person to send.
 
 [![CI][ci-badge]][ci-link]
-[![PyPI][pypi-badge]][pypi-link]
-[![Python][python-badge]][pypi-link]
+[![Python][python-badge]][python-link]
 [![License][license-badge]][license-link]
+
+<!-- The PyPI badge is out of the row above until the first release, because until
+     then it renders as "package or version not found", and a badge that says a
+     package is missing is worse than no badge. Its two definitions are still at the
+     bottom of this file next to the others, so restoring it is one line: put
+     [![PyPI][pypi-badge]][pypi-link] back into the row above. -->
+
+<!-- [![PyPI][pypi-badge]][pypi-link] -->
 
 > **The one thing to know before anything else.** commentdesk never publishes.
 > It reads a CSV, writes a page of drafts, and exits. Sending a reply is a person's
@@ -31,11 +38,23 @@ Python 3.11 or newer, and an API key for any OpenAI-compatible chat endpoint.
 
 ## Install
 
-commentdesk is not on PyPI yet. Once it ships:
+commentdesk is not on PyPI yet, so install it from this repository. Both of these
+work today:
+
+```bash
+uv tool install git+https://github.com/Ab-Romia/commentdesk.git
+uv tool install "commentdesk[pdf] @ git+https://github.com/Ab-Romia/commentdesk.git"
+```
+
+The second adds the PDF knowledge source, which is an optional extra because it
+pulls in a rendering library that a text knowledge file does not need.
+
+Once the first release is published, the shorter form starts working and this
+section becomes:
 
 ```bash
 uv tool install commentdesk
-uv tool install "commentdesk[pdf]"   # adds the PDF knowledge source
+uv tool install "commentdesk[pdf]"
 ```
 
 ## The whole thing, end to end
@@ -277,7 +296,8 @@ Apache-2.0. See `LICENSE` and `NOTICE`.
 [ci-link]: https://github.com/Ab-Romia/commentdesk/actions/workflows/ci.yml
 [pypi-badge]: https://img.shields.io/pypi/v/commentdesk.svg
 [pypi-link]: https://pypi.org/project/commentdesk/
-[python-badge]: https://img.shields.io/pypi/pyversions/commentdesk.svg
-[license-badge]: https://img.shields.io/pypi/l/commentdesk.svg
+[python-badge]: https://img.shields.io/badge/python-3.11%2B-blue.svg
+[python-link]: https://github.com/Ab-Romia/commentdesk/blob/main/pyproject.toml
+[license-badge]: https://img.shields.io/badge/license-Apache--2.0-blue.svg
 [license-link]: https://github.com/Ab-Romia/commentdesk/blob/main/LICENSE
 [promptfoo]: https://github.com/promptfoo/promptfoo
