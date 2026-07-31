@@ -417,6 +417,33 @@ def test_read_comments_accepts_a_file_with_no_author_column(tmp_path):
     assert set(rows[0]) == set(IN_FIELDS)
 
 
+def test_read_comments_reads_the_old_video_title_header_as_post_title(tmp_path):
+    """video_title named one medium in an engine that claims to have none, and it was
+    the last place that claim was visibly broken: the label sent to the model was
+    already "Post title:" and the review page heading was already "Context", but the
+    column an operator types into a spreadsheet still said video. post_title is the
+    name now, and the old header is read silently rather than refused, because an
+    export already sitting on somebody's disk is not a mistake worth stopping for."""
+    path = tmp_path / "comments.csv"
+    path.write_text(
+        "id,platform,author,comment,video_title\n1,forum,Dana,How much is it?,Ep 3\n",
+        encoding="utf-8",
+    )
+    rows = read_comments(path)
+    assert rows[0]["post_title"] == "Ep 3"
+    assert set(rows[0]) == set(IN_FIELDS)
+
+
+def test_post_title_wins_when_a_file_somehow_carries_both_headers(tmp_path):
+    """A file half-migrated by hand. The canonical name is the one to believe."""
+    path = tmp_path / "comments.csv"
+    path.write_text(
+        "id,comment,post_title,video_title\n1,How much is it?,New,Old\n",
+        encoding="utf-8",
+    )
+    assert read_comments(path)[0]["post_title"] == "New"
+
+
 def test_read_comments_rejects_a_file_whose_comment_column_is_misspelled(tmp_path):
     # Without this check every row is read as empty and the run exits 0 having
     # answered nothing, which is the failure that looks most like success.
@@ -443,7 +470,7 @@ def test_run_pipeline_decides_an_empty_comment_without_calling_the_model():
     rows = run_pipeline(
         CFG,
         PRICED,
-        [{"id": "1", "platform": "forum", "author": "", "comment": "   ", "video_title": ""}],
+        [{"id": "1", "platform": "forum", "author": "", "comment": "   ", "post_title": ""}],
         "KNOWLEDGE",
         "SYSTEM",
         client,
@@ -466,7 +493,7 @@ def test_run_pipeline_writes_every_out_field_and_the_model_it_used():
                 "platform": "forum",
                 "author": "Dana",
                 "comment": "Nice one",
-                "video_title": "Ep 3",
+                "post_title": "Ep 3",
             }
         ],
         "KNOWLEDGE",
@@ -487,7 +514,7 @@ def test_run_pipeline_leaves_the_cost_blank_when_pricing_is_incomplete():
     rows = run_pipeline(
         CFG,
         unpriced,
-        [{"id": "1", "platform": "forum", "author": "", "comment": "Nice one", "video_title": ""}],
+        [{"id": "1", "platform": "forum", "author": "", "comment": "Nice one", "post_title": ""}],
         "KNOWLEDGE",
         "SYSTEM",
         client,
@@ -505,14 +532,14 @@ def test_run_pipeline_sends_an_identical_system_prefix_for_every_row():
             "platform": "forum",
             "author": "Dana",
             "comment": "How much?",
-            "video_title": "Ep 3",
+            "post_title": "Ep 3",
         },
         {
             "id": "2",
             "platform": "forum",
             "author": "Sam",
             "comment": "Where do I get it?",
-            "video_title": "Ep 4",
+            "post_title": "Ep 4",
         },
     ]
     run_pipeline(CFG, PRICED, comments, "KNOWLEDGE", "SYSTEM", client)

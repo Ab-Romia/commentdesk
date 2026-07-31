@@ -17,7 +17,7 @@ def make_row(**over):
         "platform": "video-site",
         "author": "sam",
         "comment": "how much is it",
-        "video_title": "foraging clip",
+        "post_title": "foraging clip",
         "decision": "reply",
         "reason": "direct question about price",
         "reply": "it is eighteen dollars",

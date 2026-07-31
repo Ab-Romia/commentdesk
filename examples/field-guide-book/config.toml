@@ -87,7 +87,7 @@ provider = { allow_fallbacks = false, data_collection = "deny" }
 label = "cheap"
 model = "deepseek/deepseek-chat"
 pricing = { input_per_mtok = 0.09, cached_per_mtok = 0.02, output_per_mtok = 0.18, cache_write_per_mtok = 0.0 }
-params = { reasoning = { enabled = false }, provider = { allow_fallbacks = false, data_collection = "deny" } }
+params = { enable_thinking = false, reasoning = { enabled = false }, provider = { allow_fallbacks = false, data_collection = "deny" } }
 
 [[bakeoff.models]]
 label = "small"

@@ -113,6 +113,31 @@ def test_bakeoff_doc_carries_no_unmeasured_figures():
     )
 
 
+def test_comments_csv_doc_names_every_column_the_engine_reads():
+    """The input CSV was documented nowhere. config.toml, the voice files and the
+    knowledge document each had a complete reference page; the one file an operator
+    builds by hand in a spreadsheet had four command lines and a mermaid node. A
+    column added to IN_FIELDS and left out of this page is a column nobody can find,
+    so the two are bound together."""
+    from commentdesk.engine import IN_FIELDS, TITLE_ALIAS
+
+    text = read_doc("comments-csv.md")
+    for field in IN_FIELDS:
+        assert f"`{field}`" in text, f"comments-csv.md does not document {field}"
+    # The alias is the part an operator with an older export needs to read.
+    assert f"`{TITLE_ALIAS}`" in text
+    # And the two behaviours nobody discovers on their own.
+    assert "utf-8-sig" in text
+    assert "refused" in text
+
+
+def test_the_readme_documentation_table_lists_every_doc():
+    """A page nobody links to is a page nobody reads. The table is the only index."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for path in sorted(DOCS.glob("*.md")):
+        assert f"`docs/{path.name}`" in readme, f"README does not link docs/{path.name}"
+
+
 def test_platform_policy_maps_features_to_clauses():
     text = read_doc("platform-policy.md")
     for clause in (

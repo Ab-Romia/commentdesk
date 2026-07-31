@@ -74,7 +74,7 @@ The guide covers wild garlic, elderflower and three common mushrooms.
 It is 180 pages and costs eighteen dollars.
 """
 
-COMMENTS = """id,platform,author,comment,video_title
+COMMENTS = """id,platform,author,comment,post_title
 1,video-site,sam,how much does it cost,foraging clip
 2,video-site,alex,my order never arrived and I want a refund,foraging clip
 3,photo-site,jo,does it cover mushrooms,mushroom clip

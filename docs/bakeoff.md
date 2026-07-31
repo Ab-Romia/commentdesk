@@ -110,9 +110,9 @@ part of the prompt causes it and what reduces it.
 ## A parameter that lies
 
 Some model routes offer two ways to turn off hidden reasoning: a gateway's own switch,
-and a provider-native flag the underlying model defines for itself. This project sets
-both together whenever reasoning should be off, specifically because the second one is
-not guaranteed to be honored: a gateway sitting in front of the provider can accept
+and a provider-native flag the underlying model defines for itself. Set both together
+whenever reasoning should be off, specifically because the second one is not
+guaranteed to be honored: a gateway sitting in front of the provider can accept
 that provider-native key, forward it unread, and have the provider ignore it. The
 request still succeeds. Nothing in the response warns you. The model reasons anyway,
 and every one of those hidden reasoning tokens is billed to you as output.
@@ -142,9 +142,17 @@ commentdesk run --config with-gateway-flag.toml --comments one-comment.csv --out
 
 Read `completion_tokens` and `cost_usd` in each `review.csv`. A route worth trusting
 shows the same number either way. Keep both flags set together once you know your
-answer, as this project's own configs do: the provider-native one costs nothing when
-it is honored and nothing when it is ignored, and it helps the moment a route starts
-honoring it.
+answer: the provider-native one costs nothing when it is honored and nothing when it
+is ignored, and it helps the moment a route starts honoring it.
+
+Write both yourself, in every model table that turns reasoning off. `commentdesk run`
+and `commentdesk bakeoff` send your `params` through to the request verbatim and add
+nothing to them; `config.with_reasoning` is the only thing in the package that sets
+the pair for you, and its only caller is the reasoning checkbox on the local test
+page. So the tool sets both when you toggle reasoning in the ui, and in a batch run
+the two flags are yours. Every config in this repository that turns reasoning off
+sets both, and a test asserts it, which is the only reason that sentence is worth
+anything.
 
 ## What this is not
 

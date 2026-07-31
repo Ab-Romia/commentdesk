@@ -228,14 +228,22 @@ def process_comment(client, model_cfg: dict, messages: list, behavior: dict) -> 
     }
 
 
-IN_FIELDS = ["id", "platform", "author", "comment", "video_title"]
+IN_FIELDS = ["id", "platform", "author", "comment", "post_title"]
+
+# The column post_title used to be called. video_title named one medium in an engine
+# that claims to have none, and it was the last place that claim was visibly broken:
+# the label sent to the model and the heading on the review page had both already been
+# neutralised, and the column an operator actually types into a spreadsheet had not.
+# Read as a silent alias rather than refused, because a comment export already sitting
+# on somebody's disk under the old header is not a mistake worth stopping a run for.
+TITLE_ALIAS = "video_title"
 
 OUT_FIELDS = [
     "id",
     "platform",
     "author",
     "comment",
-    "video_title",
+    "post_title",
     "decision",
     "reason",
     "reply",
@@ -262,10 +270,19 @@ def read_comments(path: str | Path) -> list[dict]:
     data in a real export, many operators strip it before the file leaves their
     machine, and an absent author means the request omits that clause rather than
     inventing a placeholder name.
+
+    Every column not in IN_FIELDS is dropped. `post_title` is read from the old
+    `video_title` header too, so an export written before the column was renamed
+    still carries its titles through.
     """
     with open(path, encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        rows = [{k: (raw.get(k) or "").strip() for k in IN_FIELDS} for raw in reader]
+        rows = []
+        for raw in reader:
+            row = {k: (raw.get(k) or "").strip() for k in IN_FIELDS}
+            if not row["post_title"]:
+                row["post_title"] = (raw.get(TITLE_ALIAS) or "").strip()
+            rows.append(row)
         fields = reader.fieldnames or []
     if not rows:
         raise ConfigError(f"no comments found in {path}")
@@ -361,7 +378,7 @@ def run_one(
     Shared by the chat subcommand and the local UI, so that what an operator
     tries by hand is produced by exactly the code that produces a batch row.
     """
-    row = {"platform": platform, "author": author, "comment": comment, "video_title": ""}
+    row = {"platform": platform, "author": author, "comment": comment, "post_title": ""}
     messages = build_messages(system_text, knowledge_text, row)
     result = process_comment(client, model_cfg, messages, cfg.get("behavior") or {})
     return {

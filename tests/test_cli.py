@@ -74,7 +74,7 @@ The guide covers wild garlic, elderflower and three common mushrooms.
 It is 180 pages and costs eighteen dollars.
 """
 
-COMMENTS = """id,platform,author,comment,video_title
+COMMENTS = """id,platform,author,comment,post_title
 1,video-site,sam,how much does it cost,foraging clip
 2,video-site,alex,first,foraging clip
 3,photo-site,jo,does it cover mushrooms,mushroom clip
@@ -364,7 +364,7 @@ def test_ui_subcommand_wires_config_and_port_through_and_never_an_address(tmp_pa
 def test_review_renders_a_page_from_a_csv(tmp_path, capsys):
     result = tmp_path / "review.csv"
     result.write_text(
-        "id,platform,author,comment,video_title,decision,reason,reply,model,"
+        "id,platform,author,comment,post_title,decision,reason,reply,model,"
         "prompt_tokens,cached_tokens,cache_write_tokens,completion_tokens,"
         "cost_usd,error\n"
         "1,video-site,sam,how much is it,clip,reply,asks the price,"
@@ -381,7 +381,7 @@ def test_review_renders_a_page_from_a_csv(tmp_path, capsys):
 
 def test_review_blind_writes_the_key_beside_the_page(tmp_path):
     header = (
-        "id,platform,author,comment,video_title,decision,reason,reply,model,"
+        "id,platform,author,comment,post_title,decision,reason,reply,model,"
         "prompt_tokens,cached_tokens,cache_write_tokens,completion_tokens,"
         "cost_usd,error\n"
     )

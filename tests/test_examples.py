@@ -189,3 +189,60 @@ def test_sourdough_categories_cover_every_row():
         assert not as_text - row_ids, f"category {name} names rows not in the CSV"
         claimed |= as_text
     assert not row_ids - claimed, "rows in no category"
+
+
+def model_tables(config_path):
+    """Every model table a config defines: the default [model] and each bake-off
+    entry, labelled so a failure names the one that is wrong."""
+    with open(config_path, "rb") as handle:
+        cfg = tomllib.load(handle)
+    tables = [(f"{config_path.parent.name} [model]", cfg["model"])]
+    for entry in (cfg.get("bakeoff") or {}).get("models", []):
+        tables.append((f"{config_path.parent.name} [[bakeoff.models]] {entry.get('label')}", entry))
+    return tables
+
+
+CONFIGS_IN_THIS_REPOSITORY = [
+    FIELD_GUIDE / "config.toml",
+    SOURDOUGH / "config.toml",
+    ROOT / "tests" / "fixtures" / "nazzef-kit-ar" / "config.toml",
+]
+
+
+@pytest.mark.parametrize(
+    ("label", "table"),
+    [pair for path in CONFIGS_IN_THIS_REPOSITORY for pair in model_tables(path)],
+    ids=lambda value: value if isinstance(value, str) else "",
+)
+def test_a_model_table_that_turns_reasoning_off_sets_both_switches(label, table):
+    """docs/bakeoff.md's whole subject is that a parameter being accepted is not the
+    same as a parameter being honored, and it tells the reader to set the gateway
+    switch and the provider-native flag together whenever reasoning should be off.
+    It also used to say "as this project's own configs do", pointing at configs that
+    did not: the bake-off entry and the Arabic fixture each set only `reasoning`.
+    A doc making that argument while citing a config that omits the parameter is the
+    exact error it warns about, so the claim is checked here rather than asserted.
+
+    A table that does not turn reasoning off is out of scope on purpose. The
+    sourdough example deliberately runs a model family that cannot switch reasoning
+    off at all and sets an effort floor instead, which the doc's "whenever reasoning
+    should be off" already scopes out.
+    """
+    params = table.get("params") or {}
+    reasoning = params.get("reasoning") or {}
+    if reasoning.get("enabled") is not False:
+        pytest.skip(f"{label} does not turn reasoning off")
+    assert params.get("enable_thinking") is False, (
+        f"{label} sets reasoning.enabled = false without enable_thinking = false"
+    )
+
+
+def test_the_bakeoff_doc_tells_the_operator_to_write_both_flags_themselves():
+    """The claim the doc used to make about itself was wrong in a second way:
+    `with_reasoning` is what sets the pair, and its only caller in the whole package
+    is the ui's reasoning checkbox. A batch run passes `params` through verbatim, so
+    during a run the tool sets nothing and the operator sets both."""
+    text = (ROOT / "docs" / "bakeoff.md").read_text(encoding="utf-8")
+    assert "as this project's own configs do" not in text
+    assert "verbatim" in text
+    assert "Write both yourself" in text

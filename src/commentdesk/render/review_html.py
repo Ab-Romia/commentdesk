@@ -28,7 +28,7 @@ COLUMNS = [
     ("id", "#"),
     ("platform", "Platform"),
     ("author", "Author"),
-    ("video_title", "Context"),
+    ("post_title", "Context"),
     ("comment", "Comment"),
     ("decision", "Decision"),
     ("reason", "Reason"),

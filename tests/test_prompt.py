@@ -264,7 +264,7 @@ def test_build_messages_shape_and_cache_marker():
             "platform": "youtube",
             "author": "Dana",
             "comment": "how much is it?",
-            "video_title": "Ten wild greens",
+            "post_title": "Ten wild greens",
         },
     )
     assert [m["role"] for m in messages] == ["system", "user"]

@@ -217,7 +217,7 @@ def build_messages(system_text: str, knowledge_text: str, row: dict) -> list[dic
     platform = str(row.get("platform") or "").strip()
     if platform:
         parts.append(f"Platform: {platform}")
-    title = str(row.get("video_title") or "").strip()
+    title = str(row.get("post_title") or "").strip()
     if title:
         parts.append(f"Post title: {title}")
     author = str(row.get("author") or "").strip()

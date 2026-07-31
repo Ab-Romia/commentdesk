@@ -43,5 +43,9 @@ output_per_mtok = 1.20
 cache_write_per_mtok = 0.375
 
 [model.params]
+# Both switches, together, exactly as docs/bakeoff.md asks for. reasoning is the
+# gateway's own switch and is the one that takes effect; enable_thinking is the
+# provider-native flag, which some routes accept and ignore.
+enable_thinking = false
 reasoning = { enabled = false }
 provider = { allow_fallbacks = false, data_collection = "deny" }

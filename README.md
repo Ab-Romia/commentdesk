@@ -156,6 +156,7 @@ this tool talks to.
 |---|---|
 | `docs/architecture.md` | the cached prefix, why there is no retrieval, and where that stops working |
 | `docs/configuration.md` | every key `config.toml` accepts, which are required, and what each does |
+| `docs/comments-csv.md` | the input CSV: every column, which are required, and what happens to the rest |
 | `docs/writing-a-voice.md` | writing your rules and examples, in your language, placeholder by placeholder |
 | `docs/sources.md` | adding a knowledge source handler |
 | `docs/bakeoff.md` | comparing models blind, and one parameter that lies |
