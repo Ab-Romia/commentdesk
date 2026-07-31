@@ -65,7 +65,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "openai", specifier = ">=1.40" },
-    { name = "pymupdf", marker = "extra == 'pdf'", specifier = ">=1.24" },
+    { name = "pymupdf", marker = "extra == 'pdf'", specifier = ">=1.24.3" },
 ]
 provides-extras = ["pdf"]
 

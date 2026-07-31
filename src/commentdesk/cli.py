@@ -290,10 +290,9 @@ def cmd_ingest(args) -> int:
             f"missing env var(s): {', '.join(missing)} (put them in .env next to {args.config})"
         )
     try:
-        # sources/pdf_vision.py does not exist yet: it lands in a later task, and
-        # it depends on the optional pdf extra even once it does. The import is
-        # lazy so that ingest is the only subcommand that ever needs either one.
-        from .sources.pdf_vision import transcribe_pdf  # pyright: ignore[reportMissingImports]
+        # sources/pdf_vision.py depends on the optional pdf extra, so the import
+        # is lazy: ingest is the only subcommand that ever needs it.
+        from .sources.pdf_vision import transcribe_pdf
     except ImportError as e:
         return _fail(f"pdf ingestion needs the optional extra: pip install commentdesk[pdf] ({e})")
     client = make_client(model_cfg)

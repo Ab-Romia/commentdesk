@@ -68,7 +68,7 @@ def load_knowledge(cfg: dict, config_dir: Path) -> str:
     return document
 
 
-# Imported for the side effect of registering the built in handler. The import
-# sits at the bottom because the module above defines the decorator it uses, and
-# the name is unused on purpose.
-from . import text  # noqa: E402, F401
+# Imported for the side effect of registering the built in handlers. The import
+# sits at the bottom because the module above defines the decorator they use, and
+# the names are unused on purpose.
+from . import pdf_vision, text  # noqa: E402,F401  imported for the side effect of registering

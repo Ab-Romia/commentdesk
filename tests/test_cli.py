@@ -250,6 +250,30 @@ def test_ingest_refuses_to_overwrite_before_it_asks_for_a_key(tmp_path, capsys, 
     assert "CD_KEY_MAIN" not in err
 
 
+def test_ingest_reports_a_missing_key_without_touching_the_pdf_extra(tmp_path, capsys, monkeypatch):
+    """The missing key check has to come before the lazy import of pdf_vision, so a
+    machine without the pdf extra, without a real key and without a real PDF still
+    gets a clean, actionable message rather than a traceback from either dependency
+    it has not paid for."""
+    clear_keys(monkeypatch)
+    config = build_product(tmp_path)
+    rc = main(
+        [
+            "ingest",
+            "--config",
+            str(config),
+            "--pdf",
+            str(tmp_path / "doc.pdf"),
+            "--out",
+            str(tmp_path / "new-knowledge.md"),
+        ]
+    )
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "CD_KEY_MAIN" in err
+    assert "Traceback" not in err
+
+
 def test_chat_reports_a_missing_key_without_a_traceback(tmp_path, capsys, monkeypatch):
     clear_keys(monkeypatch)
     config = build_product(tmp_path)
