@@ -1,0 +1,25 @@
+version: 2
+
+updates:
+  # Monthly and grouped: a pull request per action per week is noise, and noise is
+  # how a bad bump gets merged without being read. The cooldown means a release has
+  # been public for two weeks before it is proposed here.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 14
+    groups:
+      python:
+        patterns: ["*"]

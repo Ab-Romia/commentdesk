@@ -80,3 +80,36 @@ def test_lint_runs_once_outside_the_matrix():
     assert "matrix" not in lint
     assert "make lint" in lint
     assert "make typecheck" in lint
+
+
+def test_publish_uses_trusted_publishing_in_a_protected_environment():
+    """No long-lived token in a repository secret, ever.
+
+    Trusted publishing exchanges a short-lived OIDC token for an upload. The protected
+    environment is what forces a human approval step in front of it.
+    """
+    text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
+    assert "id-token: write" in text
+    assert re.search(r"environment:\n\s+name: release", text)
+    assert "password:" not in text, "trusted publishing needs no password"
+    assert "PYPI_API_TOKEN" not in text
+    assert "secrets." not in text, "no repository secret should be needed to publish"
+    # id-token: write must be scoped to the publishing job, not granted file-wide.
+    top, _, _jobs = text.partition("\njobs:")
+    assert "id-token" not in top
+
+
+def test_publish_only_runs_on_a_published_release():
+    text = (WORKFLOWS / "publish.yml").read_text(encoding="utf-8")
+    assert re.search(r"on:\n  release:\n    types: \[published\]", text)
+    assert "on: push" not in text
+
+
+def test_dependabot_is_monthly_grouped_and_cooled_down():
+    """Ungrouped weekly bumps are noise, and a same-day bump is a supply chain risk."""
+    text = (ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    assert text.count("interval: monthly") >= 2
+    assert "groups:" in text
+    assert "default-days: 14" in text
+    for ecosystem in ("github-actions", "uv"):
+        assert f"package-ecosystem: {ecosystem}" in text
