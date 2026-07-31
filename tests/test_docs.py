@@ -78,3 +78,16 @@ def test_voice_doc_covers_every_placeholder():
     assert f"<{KNOWLEDGE_TAG}>" in text
     assert "two passes" in text
     assert "hard error" in text
+
+
+def test_sources_doc_documents_every_registered_source():
+    """A source nobody documented is a source nobody can configure."""
+    import commentdesk.sources.text  # noqa: F401  (registers "text")
+    from commentdesk import sources
+
+    text = read_doc("sources.md")
+    for name in sources.SOURCES:
+        assert f'source = "{name}"' in text, f"source {name!r} is undocumented"
+    assert "@register(" in text
+    assert "def load_" in text
+    assert "refuses to overwrite" in text
