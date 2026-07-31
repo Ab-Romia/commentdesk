@@ -1,12 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """Behaviour of the reply level style rules."""
 
+import re
+
+import pytest
+
+from commentdesk.config import ConfigError, load_config
 from commentdesk.sanitize import sanitize_reply
+from conftest import MINIMAL_CONFIG_TOML
 
 SEP = ", "
 # The three smiling faces the example config bans. Written as escapes so the file
 # reads the same in any editor.
 EMOJI = "\U0001f642\U0001f643\U0001f60a"
+MARKERS = ["example.com/field-guide", "link in bio"]
 
 
 def test_em_and_en_dashes_become_the_configured_separator():
@@ -59,3 +66,136 @@ def test_no_punctuation_from_another_script_is_introduced():
         assert set(out) <= set(text) | set(SEP), out
         assert "—" not in out
         assert "," in out
+
+
+def test_find_repetition_sees_past_trailing_punctuation():
+    """The exact case the old hand written strip list missed.
+
+    Three English replies that end on the same word with three different marks.
+    The old code stripped the full stop and the exclamation mark but not the
+    ASCII question mark, so these three became two keys and nothing was flagged.
+    """
+    from commentdesk.sanitize import find_repetition
+
+    rows = [
+        {"id": "1", "reply": "That helps a lot, thank you"},
+        {"id": "2", "reply": "Glad it landed, thank you!"},
+        {"id": "3", "reply": "Did that answer it, thank you?"},
+        {"id": "4", "reply": "Hope the weekend treats you well"},
+    ]
+    flags = find_repetition(rows)
+    assert any(f.startswith("closing") and "'you'" in f and "1, 2, 3" in f for f in flags), flags
+
+
+def test_two_repeats_are_normal_variation():
+    from commentdesk.sanitize import find_repetition
+
+    rows = [
+        {"id": "1", "reply": "Thank you kindly"},
+        {"id": "2", "reply": "Thank you again"},
+    ]
+    assert find_repetition(rows) == []
+    # ...and the threshold is a parameter, so a stricter run can ask for two.
+    assert find_repetition(rows, min_repeats=2)
+
+
+def test_repetition_is_found_across_non_ascii_punctuation():
+    """An ideographic full stop, a fullwidth exclamation mark, and no mark at all
+    must all normalise to the same closing word."""
+    from commentdesk.sanitize import find_repetition
+
+    rows = [
+        {"id": "1", "reply": "お役に立てて 嬉しい。"},
+        {"id": "2", "reply": "読んでくれて 嬉しい！"},  # noqa: RUF001
+        {"id": "3", "reply": "そう言ってもらえて 嬉しい"},
+    ]
+    flags = find_repetition(rows)
+    assert any(f.startswith("closing") and "1, 2, 3" in f for f in flags), flags
+
+
+def test_leading_punctuation_does_not_split_an_opening():
+    from commentdesk.sanitize import find_repetition
+
+    rows = [
+        {"id": "1", "reply": '"Glad you asked, here it is'},
+        {"id": "2", "reply": "Glad that helped, take care"},
+        {"id": "3", "reply": "(Glad to hear it) all the best"},
+    ]
+    flags = find_repetition(rows)
+    assert any(f.startswith("opening") and "'Glad'" in f and "1, 2, 3" in f for f in flags), flags
+
+
+def test_one_word_replies_are_not_counted_at_both_ends():
+    """A single word is its own opening and its own closing, and counting it twice
+    would report the same fact as two separate flags."""
+    from commentdesk.sanitize import find_repetition
+
+    rows = [{"id": str(i), "reply": "Thanks"} for i in range(1, 6)]
+    assert find_repetition(rows) == []
+
+
+def test_find_repetition_tolerates_rows_without_a_reply():
+    from commentdesk.sanitize import find_repetition
+
+    rows = [{"id": "1"}, {"id": "2", "reply": None}, {"id": "3", "reply": ""}]
+    assert find_repetition(rows) == []
+
+
+def test_is_plug_matches_configured_markers_case_insensitively():
+    from commentdesk.sanitize import is_plug
+
+    assert is_plug("you can get it at https://example.com/field-guide", MARKERS)
+    assert is_plug("Link In Bio", MARKERS)
+    assert is_plug("LINK IN BIO if you want it", MARKERS)
+
+
+def test_is_plug_is_false_when_no_configured_marker_appears():
+    """A run reports clean only when it is clean.
+
+    The count is approximate by design, so this test pins the direction that
+    matters: markers that are absent must not be conjured, and an empty reply is
+    never a plug.
+    """
+    from commentdesk.sanitize import is_plug
+
+    assert not is_plug("Sleep on it and see how you feel tomorrow", MARKERS)
+    assert not is_plug("", MARKERS)
+    assert not is_plug("", [])
+
+
+def test_empty_plug_markers_cannot_be_configured(tmp_path):
+    """The silently unmeasurable state is closed off by config, not by luck.
+
+    In the source project the markers were hardcoded to one product's strings, so
+    under any other configuration is_plug answered False on every reply, the report
+    printed a clean zero, and plug_cap could never fire. A failure that looks like
+    success is worse than a crash, so an empty marker list is a load error.
+
+    The shipped example product (examples/field-guide-book/) does not exist yet at
+    this point in the build; it lands in a later task. The suite's own stand-in for
+    a real, valid product config, MINIMAL_CONFIG_TOML from conftest.py, plays the
+    control here instead. It keeps plug_markers on one line for the same reason the
+    shipped example will: the substitution below depends on it.
+    """
+    from commentdesk.sanitize import is_plug
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(MINIMAL_CONFIG_TOML, encoding="utf-8")
+
+    # The fixture config is the control: it loads, and its markers are real.
+    markers = load_config(config_path)["behavior"]["plug_markers"]
+    assert markers
+    assert any(is_plug(f"see {m} for more", markers) for m in markers)
+
+    raw = config_path.read_text(encoding="utf-8")
+    broken, count = re.subn(r"(?m)^plug_markers\s*=.*$", "plug_markers = []", raw)
+    assert count == 1, (
+        "substitution matched nothing, so this test would pass without testing "
+        "anything. The fixture config keeps plug_markers on one line; if that "
+        "changes, update this pattern."
+    )
+    config_path.write_text(broken, encoding="utf-8")
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(config_path)
+    assert "plug_markers" in str(excinfo.value)
