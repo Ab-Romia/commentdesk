@@ -27,6 +27,12 @@ classifiers = [
 ]
 dependencies = ["openai>=1.40"]
 
+[project.urls]
+Homepage = "https://github.com/Ab-Romia/commentdesk"
+Repository = "https://github.com/Ab-Romia/commentdesk"
+Issues = "https://github.com/Ab-Romia/commentdesk/issues"
+Changelog = "https://github.com/Ab-Romia/commentdesk/releases"
+
 [project.optional-dependencies]
 pdf = ["pymupdf>=1.24.3"]
 
