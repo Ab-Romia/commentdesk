@@ -50,3 +50,31 @@ def test_architecture_explains_the_cached_prefix_and_its_limit():
     # true. If the condition ever disappears from this file, the claim is unsupported.
     assert "one document" in text
     assert "nothing that varies per row may enter the prefix" in text
+
+
+def test_voice_doc_covers_every_placeholder():
+    """The doc is the only place an operator learns the placeholder names.
+
+    Adding a placeholder to build_mapping and forgetting this file leaves an operator
+    with a feature they cannot discover, so the test binds the two together.
+    """
+    from commentdesk.prompt import KNOWLEDGE_TAG
+
+    text = read_doc("writing-a-voice.md")
+    for name in (
+        "product_name",
+        "product_kind",
+        "price_text",
+        "purchase_link",
+        "escalation_contact",
+        "max_reply_sentences",
+        "bot_disclosure_text",
+        "knowledge_tag",
+        "cta_instruction",
+        "cta_phrases",
+        "cta_phrase_1",
+    ):
+        assert "{{" + name + "}}" in text, f"{name} is undocumented"
+    assert f"<{KNOWLEDGE_TAG}>" in text
+    assert "two passes" in text
+    assert "hard error" in text
