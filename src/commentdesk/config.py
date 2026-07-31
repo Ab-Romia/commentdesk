@@ -50,6 +50,14 @@ def load_config(path: str | Path = "config.toml") -> dict:
         raise ConfigError(f"config file not found: {path}") from None
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"invalid TOML in {path}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        # tomllib decodes the bytes itself and lets this through untouched. It is a
+        # ValueError, not a TOMLDecodeError and not an OSError, so it reached the
+        # operator as a traceback from the very first file the tool opens.
+        raise ConfigError(
+            f"config file is not valid UTF-8: {path} ({exc.reason} at byte {exc.start}). "
+            "Save it as UTF-8 and try again."
+        ) from exc
 
     for section, keys in REQUIRED.items():
         if section not in cfg:

@@ -58,6 +58,31 @@ def is_loopback(address: str) -> bool:
     return ip.is_loopback
 
 
+def read_pane(path, label):
+    """One file shown in a pane, or a ConfigError naming it.
+
+    Three failures land here and all three used to be misreported. A missing voice
+    file raised FileNotFoundError, which is an OSError, which cmd_ui's handler wrapped
+    as "cannot start the server on 127.0.0.1:8377" for a file that has nothing to do
+    with the socket, on the one command an operator is running precisely because they
+    are editing voice files. A file in a legacy encoding raised UnicodeDecodeError,
+    which is a ValueError and reached the terminal as a traceback. And utf-8 here
+    against prompt.py's utf-8-sig meant a byte order mark showed as a stray glyph in
+    the pane that exists to show exactly what a run sends, and nowhere else.
+    """
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError as exc:
+        raise ConfigError(f"{label} file not found: {path}") from exc
+    except OSError as exc:
+        raise ConfigError(f"cannot read the {label} file {path}: {exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigError(
+            f"{label} file is not valid UTF-8: {path} ({exc.reason} at byte {exc.start}). "
+            "Save it as UTF-8 and try again."
+        ) from exc
+
+
 def build_state(config_path):
     """Everything the server answers from, loaded at startup and again on reload.
 
@@ -80,9 +105,9 @@ def build_state(config_path):
         # doing, so get_client keys its cache on the gateway a model actually
         # names rather than assuming they all share the default's.
         "models": model_options(cfg),
-        "voice_text": voice.read_text(encoding="utf-8"),
-        "examples_text": examples.read_text(encoding="utf-8"),
-        "config_text": config_path.read_text(encoding="utf-8"),
+        "voice_text": read_pane(voice, "voice"),
+        "examples_text": read_pane(examples, "worked examples"),
+        "config_text": read_pane(config_path, "config"),
         "knowledge_text": load_knowledge(cfg, config_dir),
         "system_text": render_system_text(cfg, config_dir),
         "product_name": cfg["product"]["name"],

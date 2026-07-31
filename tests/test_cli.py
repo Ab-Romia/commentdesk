@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import json
 
+import pytest
+
 from commentdesk.cli import format_trace, main, safe_name
 
 CONFIG = """
@@ -146,6 +148,57 @@ def test_a_csv_with_the_wrong_header_is_refused_rather_than_skipped(tmp_path, ca
     err = capsys.readouterr().err
     assert rc == 2
     assert "comment" in err
+
+
+# The single likeliest real operator mistake: a document exported from a desktop word
+# processor on a Windows machine is not UTF-8. It is hit before any call, so it is
+# free to hit over and over while somebody is setting up, and every one of these three
+# files used to answer it with a UnicodeDecodeError traceback. That is a ValueError,
+# so cli.py's OSError handlers never saw it, while the comments CSV four lines below
+# had been getting a clean message all along.
+LEGACY_ENCODED = "The guide costs eighteen euros: 18\N{EURO SIGN}\n".encode("cp1252")
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "expected"),
+    [
+        ("knowledge.md", "knowledge.md"),
+        ("prompts/voice.md", "voice.md"),
+        ("prompts/examples.md", "examples.md"),
+        ("config.toml", "config.toml"),
+    ],
+)
+def test_a_file_that_is_not_utf8_names_itself_instead_of_raising(
+    tmp_path, capsys, monkeypatch, relative_path, expected
+):
+    clear_keys(monkeypatch)
+    config = build_product(tmp_path)
+    (tmp_path / relative_path).write_bytes(LEGACY_ENCODED)
+    rc = main(["run", "--config", str(config), "--comments", str(tmp_path / "comments.csv")])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "Traceback" not in err
+    assert expected in err
+    assert "UTF-8" in err
+
+
+def test_the_ui_names_a_missing_voice_file_instead_of_blaming_the_socket(
+    tmp_path, capsys, monkeypatch
+):
+    """build_state read the voice files before render_system_text could raise its own
+    clean "voice file not found", so the FileNotFoundError, an OSError, was wrapped by
+    cmd_ui's handler as a failure to bind a port that was never touched. The ui exists
+    so an operator can iterate on voice files, which makes this the one error it will
+    actually meet, and it was the one it misreported."""
+    clear_keys(monkeypatch)
+    config = build_product(tmp_path)
+    (tmp_path / "prompts" / "voice.md").unlink()
+    rc = main(["ui", "--config", str(config)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "voice.md" in err
+    assert "cannot start the server" not in err
+    assert "Traceback" not in err
 
 
 def test_missing_key_is_named_before_any_call(tmp_path, capsys, monkeypatch):

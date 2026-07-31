@@ -15,7 +15,7 @@ import base64
 import time
 from pathlib import Path
 
-from . import SourceError, register
+from . import SourceError, read_utf8, register
 
 # Neutral on purpose. It says what to do with the pixels and nothing about what the
 # document is, because the moment a prompt names a kind of document it stops being
@@ -137,4 +137,6 @@ def load_pdf_vision(path, options):
     transcript = path.parent / (options.get("transcript") or path.with_suffix(".md").name)
     if not transcript.exists():
         raise SourceError(f"{transcript} not found: run 'commentdesk ingest' to transcribe {path}")
-    return transcript.read_text(encoding="utf-8")
+    # Written by this tool as UTF-8, then corrected by hand in whatever editor the
+    # operator has, which is where a re-save in a legacy encoding gets in.
+    return read_utf8(transcript)

@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from . import register
+from . import read_utf8, register
 
 SUFFIXES = (".md", ".txt")
 
@@ -18,8 +18,9 @@ def load_text(path: Path, options: dict) -> str:
     a different order than yesterday pays full uncached input price on every
     call of the run.
 
-    Read as utf-8-sig so a byte order mark left by a desktop editor is dropped
-    instead of becoming the first character of the prompt.
+    Read through read_utf8 so a file in a legacy encoding is named in a SourceError
+    rather than raising a UnicodeDecodeError past every handler in the CLI, which is
+    the rule docs/sources.md gives handler authors and this handler has to keep too.
 
     options is the whole [knowledge] table. This handler needs nothing from it,
     but the registry passes it so that a handler with settings of its own can
@@ -30,6 +31,6 @@ def load_text(path: Path, options: dict) -> str:
         for child in sorted(path.iterdir(), key=lambda item: item.name):
             if child.is_file() and child.suffix.lower() in SUFFIXES:
                 parts.append(f"\n\n## {child.stem}\n\n")
-                parts.append(child.read_text(encoding="utf-8-sig"))
+                parts.append(read_utf8(child))
         return "".join(parts)
-    return path.read_text(encoding="utf-8-sig")
+    return read_utf8(path)

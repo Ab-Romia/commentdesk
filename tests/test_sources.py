@@ -39,6 +39,32 @@ def test_text_source_concatenates_a_directory_in_name_order(tmp_path):
     )
 
 
+def test_a_file_in_a_legacy_encoding_raises_source_error_not_a_decode_error(tmp_path):
+    """docs/sources.md rule 3 for handler authors is "raise SourceError, with the path
+    in the message", and the shipped handler used to break it. UnicodeDecodeError is a
+    ValueError, so nothing in cli.py that catches OSError catches it, and the operator
+    got a traceback for the likeliest mistake there is: a knowledge document exported
+    from a desktop word processor in a legacy single byte encoding."""
+    doc = tmp_path / "knowledge.md"
+    doc.write_bytes("18\N{EURO SIGN} in cp1252".encode("cp1252"))
+    with pytest.raises(SourceError) as exc:
+        load_text(doc, {})
+    assert "knowledge.md" in str(exc.value)
+    assert "UTF-8" in str(exc.value)
+
+
+def test_a_directory_child_in_a_legacy_encoding_names_the_child(tmp_path):
+    """The directory branch reads each child separately, so it needs the same
+    treatment and the message has to name the child rather than the directory."""
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "a-first.md").write_text("Alpha", encoding="utf-8")
+    (kb / "b-second.md").write_bytes("18\N{EURO SIGN}".encode("cp1252"))
+    with pytest.raises(SourceError) as exc:
+        load_text(kb, {})
+    assert "b-second.md" in str(exc.value)
+
+
 def test_load_knowledge_dispatches_on_the_configured_source(tmp_path):
     (tmp_path / "kb.md").write_text("Body", encoding="utf-8")
     cfg = {"knowledge": {"source": "text", "path": "kb.md"}}

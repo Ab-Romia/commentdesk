@@ -204,7 +204,12 @@ Four rules for a handler, all of which follow from the cache:
    run starts cold. Sort anything you iterate over, the way both built-in sources do.
 3. **Raise `SourceError`, with the path in the message.** The operator reading that
    message is the person who has to act on it, not someone who is going to read your
-   code first.
+   code first. That includes the encoding case, which is the one that gets missed:
+   `UnicodeDecodeError` is a `ValueError`, so nothing that catches `OSError` catches
+   it and it reaches the operator as a traceback. Read your files through
+   `sources.read_utf8`, which both built-in handlers use; a document saved in a
+   legacy encoding then arrives as a message naming the file and saying to save it
+   as UTF-8.
 4. **Do not fetch anything over the network.** Sources read local files. A handler
    that reaches out to the network is a handler whose output can change out from
    under a cached prefix, and it puts a client for something into a package that is

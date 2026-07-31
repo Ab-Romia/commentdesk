@@ -167,7 +167,17 @@ def render_system_text(cfg: dict, config_dir: Path) -> str:
             raise ConfigError(f"voice file not found: {path}")
         # Stripped, so that a trailing newline one operator's editor adds and
         # another's does not cannot change the spacing between the sections.
-        parts.append(path.read_text(encoding="utf-8-sig").strip())
+        try:
+            parts.append(path.read_text(encoding="utf-8-sig").strip())
+        except UnicodeDecodeError as exc:
+            # A voice file saved out of a desktop editor in a legacy single byte
+            # encoding. ConfigError rather than the raw UnicodeDecodeError, which is
+            # a ValueError and would sail past every startup handler in cli.py as a
+            # traceback. Same treatment the comments CSV already gets.
+            raise ConfigError(
+                f"voice file is not valid UTF-8: {path} ({exc.reason} at byte "
+                f"{exc.start}). Save it as UTF-8 and try again."
+            ) from exc
     parts.append(OUTPUT_CONTRACT)
     return substitute("\n\n".join(parts), build_mapping(cfg))
 
