@@ -118,6 +118,7 @@ that the guarantee and the list together say the whole truth.
 | `engine.py`, `EMPTY_COMMENT_REASON` | the reason written for a row whose comment is empty | your reviewer, in the `reason` column |
 | `report.py`, `build_report` | the four lines of the end-of-run report | you, in your terminal |
 | `cli.py` | flag names, help text and startup error messages | you, in your terminal |
+| `ui.py`, `_PAGE` | the local test page's chrome: button labels, section headings and stat labels | you, in the browser |
 
 Nothing on that list is configurable today, and nothing on it enters a drafted reply.
 The first four are sent to the model and are wire format rather than voice: an operator

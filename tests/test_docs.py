@@ -7,10 +7,13 @@ strips from prose. The content tests catch a document quietly losing the sentenc
 was written for.
 """
 
+import ast
 import re
 from pathlib import Path
 
 import pytest
+
+from conftest import PACKAGE_ROOT
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs"
@@ -180,6 +183,7 @@ ENGINE_OWNED_ENGLISH = [
     ("commentdesk.render.review_html", "DEFAULT_CURRENCY_NOTE"),
     ("commentdesk.render.review_html", "NEVER_POSTED_NOTE"),
     ("commentdesk.render.review_html", "COLUMNS"),
+    ("commentdesk.ui", "_PAGE"),
 ]
 
 
@@ -197,6 +201,148 @@ def test_limits_doc_names_every_english_string_the_engine_owns(module_name, attr
     module = importlib.import_module(module_name)
     assert hasattr(module, attribute), f"{module_name}.{attribute} no longer exists"
     assert attribute in read_doc("limits.md"), f"limits.md does not name {attribute}"
+
+
+def _module_dotted_name(path: Path) -> str:
+    """The import path for a module under src/, e.g. commentdesk.render.review_html."""
+    rel = path.relative_to(PACKAGE_ROOT.parent).with_suffix("")
+    parts = [part for part in rel.parts if part != "__init__"]
+    return ".".join(parts)
+
+
+def _module_level_string_constants(path: Path) -> list[tuple[str, str]]:
+    """(name, value) for every bare `NAME = "..."` at the top of `path`'s module body.
+
+    Deliberately narrow. Every constant this project has ever used for
+    operator-visible copy (`_PAGE`, `OUTPUT_CONTRACT`, `DRAFT_BANNER`, and the rest
+    of ENGINE_OWNED_ENGLISH above) is exactly this shape: a plain string literal
+    assigned to a single name at module level. An assignment nested inside a
+    function or a class, a tuple or list of strings (the shape `COLUMNS` and
+    `IN_FIELDS` use), and an f-string all fall outside this scan on purpose. See
+    the docstring on the test below for what that leaves uncovered.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found = []
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if (
+            isinstance(target, ast.Name)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            found.append((target.id, node.value.value))
+    return found
+
+
+# Common English function words. Their presence, alongside four or more alphabetic
+# words, is what separates a sentence or two of prose from a machine token: every
+# constant already on ENGINE_OWNED_ENGLISH contains at least one, and every short
+# token this project actually uses (`"knowledge"`, `"video_title"`, `", "`)
+# contains none, simply for lack of the word count to hold one.
+_ENGLISH_STOPWORDS = frozenset(
+    {
+        "the",
+        "and",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "to",
+        "of",
+        "in",
+        "on",
+        "for",
+        "with",
+        "by",
+        "that",
+        "this",
+        "it",
+        "as",
+        "or",
+        "be",
+        "has",
+        "have",
+        "not",
+        "no",
+        "your",
+        "you",
+    }
+)
+
+
+def _reads_like_operator_prose(text: str) -> bool:
+    """A cheap, deliberately approximate stand-in for "a human reads this".
+
+    Not a parser and not proof, in either direction: it can be fooled by a long
+    enough run of technical words with no stopword among them, and it cannot tell
+    rendered text from a comment that never leaves the source file, which is
+    exactly why EXCUSED_STRING_CONSTANTS below exists and has to be read by a
+    person rather than generated.
+    """
+    words = [word for word in re.findall(r"[A-Za-z]+", text) if len(word) >= 2]
+    if len(words) < 4:
+        return False
+    return any(word.lower() in _ENGLISH_STOPWORDS for word in words)
+
+
+# Constants the heuristic above flags as prose-shaped but that are not operator
+# visible English in the sense the limits table promises to enumerate. Every entry
+# here needs its own comment saying why: an entry added with no comment is not a
+# fix, it is the hole this test exists to close reopening under a different name.
+EXCUSED_STRING_CONSTANTS = {
+    # CSS. Its two English sentences are comments for whoever reads
+    # review_html.py next, never text a browser renders, so no operator ever sees
+    # them; docs/limits.md documents what a reader of the review page sees, and
+    # this string does not reach that page as text.
+    ("commentdesk.render.review_html", "STYLE"),
+}
+
+
+def test_a_new_operator_visible_string_constant_cannot_hide_from_the_limits_list():
+    """The parametrized test above only ever checks the names someone remembered
+    to put in ENGINE_OWNED_ENGLISH, so it is structurally incapable of noticing a
+    ninth constant nobody listed. This test does not start from that list: it
+    walks every module under src/ itself and applies the same two checks to
+    whatever it finds there.
+
+    What this catches: a new module-level `NAME = "a sentence or two"` added
+    anywhere under src/commentdesk, in the specific shape every current entry on
+    the limits table already has, that is neither named in ENGINE_OWNED_ENGLISH
+    (and therefore in docs/limits.md, which the test above enforces) nor listed in
+    EXCUSED_STRING_CONSTANTS with a reason.
+
+    What this does NOT catch, and cannot without becoming a much larger project:
+    English assembled at runtime rather than held as one literal (f-strings,
+    str.join, concatenation, argparse help text built inline in cli.py); English
+    held in a list or tuple of strings instead of a bare string constant (the
+    shape COLUMNS and IN_FIELDS use); English nested inside a function or class
+    body rather than sitting at module level; and prose short enough, or plain
+    enough of stopwords, to slip past _reads_like_operator_prose. Anything that
+    slips through by one of those routes still needs a human reader to catch it,
+    the same way this project's own gap around ui.py's _PAGE was caught: by
+    someone reading the code next to the claim, not by this test.
+    """
+    offenders = []
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        module_name = _module_dotted_name(path)
+        for name, value in _module_level_string_constants(path):
+            if not _reads_like_operator_prose(value):
+                continue
+            key = (module_name, name)
+            if key in ENGINE_OWNED_ENGLISH or key in EXCUSED_STRING_CONSTANTS:
+                continue
+            offenders.append(key)
+    assert offenders == [], (
+        "a module-level string constant reads like operator-visible English but is "
+        f"neither on the limits.md table nor excused with a reason: {offenders}. "
+        "Add it to docs/limits.md and ENGINE_OWNED_ENGLISH above, or, if it truly "
+        "never reaches an operator as text, to EXCUSED_STRING_CONSTANTS with a "
+        "comment saying why."
+    )
 
 
 def test_community_files_exist_and_state_the_hard_rules():

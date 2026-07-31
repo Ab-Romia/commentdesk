@@ -117,10 +117,10 @@ a test walks the AST of every module to keep it that way.
 
 The engine does hold English of its own, and it is machine scaffolding rather than
 voice: the JSON output contract and the two instructions sent to a model, the review
-page's fixed notices and column headings, the four lines of the run report, and the
-one reason string a locally decided empty comment carries. That list is complete, it
-is written out in `docs/limits.md` with who reads each item, and none of it enters a
-reply as your voice.
+page's fixed notices and column headings, the local test page's own button labels
+and headings, the four lines of the run report, and the one reason string a locally
+decided empty comment carries. That list is complete, it is written out in `docs/limits.md`
+with who reads each item, and none of it enters a reply as your voice.
 
 `tests/fixtures/nazzef-kit-ar` is a third product, config, voice, worked examples
 and comments, written entirely in Arabic, and it passes the same acceptance tests as
