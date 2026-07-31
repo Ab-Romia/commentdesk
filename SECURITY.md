@@ -27,12 +27,18 @@ ten, and credit in the eventual advisory unless you would rather stay unnamed.
 - Anything that would cause an API key to be written to disk, printed, or included in
   an output file. Keys are read from the environment only, and nothing in this
   package is meant to echo one back.
-- The local test page served by `commentdesk ui`. It binds to `127.0.0.1` by default,
-  checks the request's `Host` header against `127.0.0.1`, `localhost` and `::1` to
-  rule out DNS rebinding, and rejects any request whose `Origin` header does not match
-  this same page. Together these are what stop a page you happen to have open in
-  another tab from driving it without your knowledge. A way around any of that is a
-  vulnerability worth reporting.
+- The local test page served by `commentdesk ui`. It reads out the whole knowledge
+  document through `/prompt` and `/trace` and spends the configured key through
+  `/api/reply`, so reaching it at all is the whole of the access it grants. Three
+  things stop that, and they are independent on purpose. It binds to `127.0.0.1` and
+  there is no flag to bind it anywhere else: `serve` refuses a non-loopback address
+  rather than warning about one. Every request is refused unless the connecting peer
+  is itself a loopback address, which holds whatever the server was bound to and does
+  not depend on any header a client chooses to send. And it checks the request's
+  `Host` header against `127.0.0.1`, `localhost` and `::1` to rule out DNS rebinding,
+  and rejects any request whose `Origin` header does not match this same page, which
+  is what stops a page you happen to have open in another tab from driving it without
+  your knowledge. A way around any of that is a vulnerability worth reporting.
 - Path traversal through a configured path, a knowledge source handler, or a field in
   a comments CSV.
 - Anything that causes the package to make a network request to a host other than the

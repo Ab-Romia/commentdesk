@@ -6,10 +6,13 @@ server is driven on an ephemeral port with a hand built state dict.
 """
 
 import contextlib
+import email.message
 import http.client
 import json
 import re
 import threading
+
+import pytest
 
 from commentdesk import ui
 
@@ -194,6 +197,100 @@ def test_a_rebound_hostname_cannot_reach_the_server():
     with running(make_state()) as port:
         status, _ = get(port, "/meta", {"Host": "attacker.example"})
     assert status == 403
+
+
+class _Probe(ui._Handler):
+    """A handler driven straight, with no socket under it.
+
+    _local_only is the whole access control boundary and its first check is on the
+    peer address, which cannot be reached over a real connection from a test: every
+    connection a test can open is already from 127.0.0.1. So the handler is built by
+    hand with the three attributes that check reads. __init__ is overridden rather
+    than called, because BaseHTTPRequestHandler's own __init__ serves a request.
+    """
+
+    def __init__(self, peer, headers=None, port=8377):
+        # A real message object rather than a dict, because that is what the handler
+        # is handed on a live request and headers are case-insensitive there.
+        message = email.message.Message()
+        for name, value in (headers or {}).items():
+            message[name] = value
+        self.client_address = (peer, 51000)
+        self.headers = message
+        self.port = port
+        self.sent = []
+
+    def _send(self, code, body, ctype):
+        self.sent.append(code)
+
+
+@pytest.mark.parametrize(
+    "peer",
+    ["127.0.0.1", "127.0.0.53", "::1", "::ffff:127.0.0.1", "localhost"],
+)
+def test_a_loopback_peer_is_served(peer):
+    """The mapped form is the one a dual-stack socket reports for an IPv4 peer, and
+    IPv6Address.is_loopback is False for it, so the check has to undo the mapping or
+    it refuses the operator's own browser on a machine with IPv6 enabled."""
+    probe = _Probe(peer, {"Host": "localhost:8377"})
+    assert probe._local_only() is True
+    assert probe.sent == []
+
+
+@pytest.mark.parametrize("peer", ["192.168.1.40", "10.0.0.7", "203.0.113.9", "fd00::1", ""])
+def test_a_peer_off_this_machine_is_refused_however_it_sets_its_headers(peer):
+    """The finding this test exists for: bound to 0.0.0.0, a client anywhere on the
+    network could send `Host: localhost` by hand and read the entire knowledge
+    document out of /prompt, then spend the operator's key through /api/reply. Host
+    and Origin describe what a browser believes, which is worth checking against a
+    browser and worth nothing against a client that writes them itself. The peer
+    address is the one thing in the request the client does not get to choose."""
+    probe = _Probe(peer, {"Host": "localhost:8377", "Origin": "http://localhost:8377"})
+    assert probe._local_only() is False
+    assert probe.sent == [403]
+
+
+def test_serve_refuses_to_bind_anywhere_but_loopback(tmp_path):
+    """Refused rather than warned about. A warning printed into a terminal nobody is
+    watching does not stop the knowledge document being served to the network, and
+    the bind address is half of the two controls that do."""
+    from commentdesk.config import ConfigError
+
+    with pytest.raises(ConfigError) as excinfo:
+        ui.serve(tmp_path / "config.toml", host="0.0.0.0")
+    message = str(excinfo.value)
+    assert "0.0.0.0" in message
+    assert "127.0.0.1" in message
+
+
+def test_the_ui_subcommand_offers_no_way_to_ask_for_another_address():
+    """The flag that made the finding reachable in one word. Removed rather than
+    documented, so this asserts the parser rejects it rather than that help text
+    warns about it."""
+    from commentdesk.cli import build_parser
+
+    parser = build_parser()
+    assert parser.parse_args(["ui", "--port", "9000"]).port == 9000
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ui", "--host", "0.0.0.0"])
+
+
+def test_the_operators_own_tab_still_works_when_the_server_is_bound_broadly():
+    """The peer check has to refuse the network without refusing the operator, so a
+    broadly bound server still answers a request that came in over loopback."""
+    server = ui.make_server(make_state(), host="0.0.0.0", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, body = get(
+            server.server_port, "/prompt", {"Host": f"localhost:{server.server_port}"}
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+    assert status == 200
+    assert json.loads(body)["knowledge_words"] == 4
 
 
 def test_a_case_varied_localhost_host_header_is_still_accepted():

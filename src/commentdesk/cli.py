@@ -263,11 +263,11 @@ def cmd_ui(args) -> int:
     from . import ui
 
     try:
-        ui.serve(Path(args.config), host=args.host, port=args.port)
+        ui.serve(Path(args.config), port=args.port)
     except (ConfigError, SourceError) as e:
         return _fail(str(e))
     except OSError as e:
-        return _fail(f"cannot start the server on {args.host}:{args.port}: {e}")
+        return _fail(f"cannot start the server on port {args.port}: {e}")
     except KeyboardInterrupt:
         print()
     return 0
@@ -352,7 +352,11 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--author", default="")
 
     served = _common(subs.add_parser("ui", help="local test interface"))
-    served.add_argument("--host", default="127.0.0.1")
+    # There is deliberately no --host. The page reads out the whole knowledge document
+    # and spends the configured key on request, and the bind address is half of what
+    # stops that reaching anyone else. A flag offering to bind elsewhere was a one word
+    # path to publishing an operator's source document on a shared network, so it is
+    # gone rather than warned about. See SECURITY.md.
     served.add_argument("--port", type=int, default=8377)
 
     ingest = _common(

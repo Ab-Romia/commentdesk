@@ -16,6 +16,7 @@ reports no error. Rename both sides in one commit.
 """
 
 import contextlib
+import ipaddress
 import json
 import os
 import webbrowser
@@ -28,6 +29,33 @@ from .prompt import render_system_text
 from .sources import load_knowledge
 
 PREVIEW_CHARS = 600
+
+LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1")
+
+
+def is_loopback(address: str) -> bool:
+    """True when `address` is a numeric address on this machine's loopback interface.
+
+    Numeric only, and deliberately: resolving a name here would make the answer depend
+    on DNS, and a name an attacker controls that resolves to 127.0.0.1 is the whole
+    point of the rebinding check this backs up. The literal name "localhost" is the one
+    exception, because it is what a browser puts in the Host header of the operator's
+    own tab.
+
+    A dual-stack socket reports an IPv4 peer as the mapped form ::ffff:127.0.0.1, and
+    IPv6Address.is_loopback is False for that, so the mapping is undone before asking.
+    """
+    text = address.strip().lower()
+    if text == "localhost":
+        return True
+    try:
+        ip = ipaddress.ip_address(text)
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return ip.is_loopback
 
 
 def build_state(config_path):
@@ -461,14 +489,27 @@ class _Handler(BaseHTTPRequestHandler):
     def _local_only(self):
         """Reject anything that was not typed into this machine's own browser tab.
 
-        Two attacks, one guard. Any page the operator happens to have open can POST
-        to /api/reply and spend money on their key, so a request carrying a foreign
-        Origin is refused. And a hostname the attacker controls that resolves to
-        127.0.0.1, which is DNS rebinding, would let that page read /prompt and
-        /trace, which between them hold the whole knowledge document. So the Host
-        header has to be a loopback name too. There is no authentication here because
-        there are no accounts, and this is what stands in for it.
+        Three checks, and the first one is the only one an attacker cannot simply
+        write for themselves. Host and Origin are headers: they describe what a
+        browser believes, which is exactly what makes them useful against a browser
+        and worthless against anything else. A client on the LAN that sets
+        `Host: localhost` by hand satisfies both, and if the server is bound to a
+        non-loopback address it then reads /prompt, which carries the whole knowledge
+        document, and POSTs /api/reply, which spends the operator's key. So the peer
+        address is checked first, and it holds whatever the server is bound to.
+
+        Past that: any page the operator happens to have open can POST to /api/reply,
+        so a request carrying a foreign Origin is refused. And a hostname the attacker
+        controls that resolves to 127.0.0.1, which is DNS rebinding, would let that
+        page read /prompt and /trace, so the Host header has to be a loopback name
+        too. There is no authentication here because there are no accounts, and this
+        is what stands in for it.
         """
+        # client_address is a 2-tuple for IPv4 and a 4-tuple for IPv6; the address is
+        # first either way. Absent only if a caller drove the handler by hand.
+        peer = (self.client_address or ("",))[0]
+        if not is_loopback(str(peer)):
+            return self._forbid()
         raw = (self.headers.get("Host") or "").strip()
         if raw.startswith("["):  # an IPv6 literal keeps its brackets
             host = raw[1 : raw.find("]")] if "]" in raw else ""
@@ -476,7 +517,7 @@ class _Handler(BaseHTTPRequestHandler):
             host = raw.rsplit(":", 1)[0]
         # Lowercased because a hostname is case-insensitive: an attacker's page
         # is free to write "Localhost" and a bare string comparison would miss it.
-        if host.lower() not in ("127.0.0.1", "localhost", "::1"):
+        if host.lower() not in LOOPBACK_NAMES:
             return self._forbid()
         origin = self.headers.get("Origin")
         # No Origin header at all is the ordinary case: a same origin GET sends none.
@@ -579,11 +620,22 @@ def make_server(state, host="127.0.0.1", port=8377):
 def serve(config_path, host="127.0.0.1", port=8377):
     """Serve the test page until interrupted.
 
-    The loopback default is not a convenience. The page spends one model call per
-    request against the operator's own key, so anything that can reach it can spend
-    money, and the whole knowledge document is readable from it. The address it binds
-    to and the guard in _local_only are the entire security model.
+    The loopback bind is not a convenience. The page spends one model call per request
+    against the operator's own key, so anything that can reach it can spend money, and
+    the whole knowledge document is readable from /prompt and /trace. The bind address
+    and the guard in _local_only are the entire security model, so this refuses to bind
+    anywhere else rather than warning about it: there is no subcommand flag to ask for
+    a different address, and a caller reaching in to pass one is asking for the one
+    thing this function exists to prevent. _local_only refuses a non-loopback peer
+    independently, so the two controls do not depend on each other.
     """
+    if not is_loopback(str(host)):
+        raise ConfigError(
+            f"refusing to serve the test page on {host}: it exposes the whole knowledge "
+            "document and spends the configured key on request, so it binds to "
+            + ", ".join(LOOPBACK_NAMES)
+            + " only"
+        )
     state = build_state(config_path)
     key_env = state["model_cfg"]["api_key_env"]
     if not os.environ.get(key_env):
