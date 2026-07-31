@@ -62,9 +62,13 @@ def load_config(path: str | Path = "config.toml") -> dict:
 
     _check_paths(cfg)
     _check_behavior(cfg)
+    _check_model_data_collection(cfg)
 
-    # Both tables are optional in the file and read unconditionally downstream.
-    cfg["model"].setdefault("params", {})
+    # pricing alone stays optional: bakeoff.py and estimate_cost already treat a
+    # missing rate as a blank cost rather than a free one, and read it unconditionally
+    # downstream. params is no longer defaulted here, because the check above has
+    # already required it to exist as a table with provider.data_collection = "deny";
+    # defaulting it after that check would only ever run once the check had raised.
     cfg["model"].setdefault("pricing", {})
     return cfg
 
@@ -164,6 +168,32 @@ def _check_behavior(cfg: dict) -> None:
         raise ConfigError("behavior.plug_cap must be a number between 0 and 1") from None
     if not 0 <= plug_cap <= 1:
         raise ConfigError("behavior.plug_cap must be between 0 and 1")
+
+
+def _check_model_data_collection(cfg: dict) -> None:
+    """The default [model] must deny data collection, the same as every bake-off entry.
+
+    bakeoff.py already enforces params.provider.data_collection = "deny" on every
+    [[bakeoff.models]] entry, but the default [model] table is the one every
+    ordinary, non-bake-off run actually uses, and nothing checked it: params was
+    optional and defaulted to an empty table, so a config that never wrote
+    [model.params] loaded cleanly and every request went out at the gateway's
+    allow default. The operator's source document and their audience's comments
+    go into every one of those requests, which is the one promise about that
+    data that cannot survive being quietly wrong.
+
+    The flag must be nested inside provider, never at the top level of params:
+    at the top level the gateway accepts the key, ignores it, and routes with
+    data collection left at allow. A validation that passes with the flag in the
+    wrong place is indistinguishable from a working one until somebody reads the
+    request body.
+    """
+    params = cfg["model"].get("params")
+    if not isinstance(params, dict):
+        raise ConfigError("[model] needs params to be a table")
+    provider = params.get("provider")
+    if not isinstance(provider, dict) or provider.get("data_collection") != "deny":
+        raise ConfigError('[model] must set params.provider.data_collection = "deny"')
 
 
 def resolve_path(config_dir: Path, rel: str) -> Path:

@@ -110,12 +110,12 @@ def test_load_config_rejects_a_missing_key(tmp_path: Path, key: str) -> None:
         load_config(write(tmp_path, text))
 
 
-def test_load_config_defaults_the_optional_model_tables(tmp_path: Path) -> None:
-    """Downstream reads cfg["model"]["params"] unconditionally, so it must exist."""
-    text = drop_section(MINIMAL_CONFIG_TOML, "[model.params]")
-    text = drop_section(text, "[model.pricing]")
+def test_load_config_defaults_the_optional_pricing_table(tmp_path: Path) -> None:
+    """pricing alone stays optional: a missing rate has to show up as a blank
+    cost, never a plausible one, and estimate_cost already reads it that way.
+    """
+    text = drop_section(MINIMAL_CONFIG_TOML, "[model.pricing]")
     cfg = load_config(write(tmp_path, text))
-    assert cfg["model"]["params"] == {}
     assert cfg["model"]["pricing"] == {}
 
 
@@ -130,6 +130,41 @@ def test_load_config_does_not_judge_the_contents(tmp_path: Path) -> None:
     cfg = load_config(write(tmp_path, text))
     assert cfg["product"]["price_text"] == "free forever"
     assert cfg["product"]["purchase_link"] == "not-a-url"
+
+
+# --- model.params.provider.data_collection -----------------------------------
+
+
+def test_model_params_is_required(tmp_path: Path) -> None:
+    """params can no longer be legitimately absent: it is the one table that
+    carries the data collection flag every request has to send.
+    """
+    text = drop_section(MINIMAL_CONFIG_TOML, "[model.params]")
+    with pytest.raises(ConfigError, match="params"):
+        load_config(write(tmp_path, text))
+
+
+def test_model_params_needs_a_provider_table(tmp_path: Path) -> None:
+    text = drop_key(MINIMAL_CONFIG_TOML, "provider")
+    with pytest.raises(ConfigError, match="data_collection"):
+        load_config(write(tmp_path, text))
+
+
+def test_model_data_collection_at_the_top_level_of_params_is_not_enough(tmp_path: Path) -> None:
+    """The gateway accepts a top level key, ignores it, and defaults to allow.
+    Only the nested form is read, so only the nested form counts.
+    """
+    text = MINIMAL_CONFIG_TOML.replace(
+        'provider = { data_collection = "deny" }\n', 'data_collection = "deny"\n'
+    )
+    with pytest.raises(ConfigError, match="data_collection"):
+        load_config(write(tmp_path, text))
+
+
+def test_model_data_collection_must_be_deny(tmp_path: Path) -> None:
+    text = set_key(MINIMAL_CONFIG_TOML, "provider", '{ data_collection = "allow" }')
+    with pytest.raises(ConfigError, match="data_collection"):
+        load_config(write(tmp_path, text))
 
 
 # --- plug_cap ---------------------------------------------------------------

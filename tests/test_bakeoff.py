@@ -198,6 +198,26 @@ def test_an_entry_with_no_provider_table_is_rejected():
     assert "data_collection" in str(caught.value)
 
 
+def test_an_entry_with_an_empty_provider_table_is_rejected():
+    # Distinct from no provider table at all: provider is present and a table,
+    # it just never sets data_collection. The strict != "deny" check already
+    # handles this, but the permutation was untested.
+    with pytest.raises(ConfigError) as caught:
+        bakeoff_model_cfgs(
+            base_cfg(
+                [
+                    {
+                        "label": "challenger",
+                        "model": "vendor-b/model-two",
+                        "params": {"provider": {}},
+                    },
+                ]
+            )
+        )
+    assert "challenger" in str(caught.value)
+    assert "data_collection" in str(caught.value)
+
+
 def test_validation_does_not_mutate_the_config():
     cfg = base_cfg(
         [
