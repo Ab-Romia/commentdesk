@@ -111,3 +111,31 @@ def test_bakeoff_doc_carries_no_unmeasured_figures():
     assert not re.search(r"\b\d[\d,]*\s*(tokens|ms|seconds)\b", text), (
         "a measured quantity appears before measurement"
     )
+
+
+def test_platform_policy_maps_features_to_clauses():
+    text = read_doc("platform-policy.md")
+    for clause in (
+        "III.I.2",
+        "III.E.3.d",
+        "III.I.11",
+        "1.7",
+        "Article 50(1)",
+        "Article 50(4)",
+    ):
+        assert clause in text, f"{clause} is not mapped to a feature"
+    assert "not legal advice" in text
+    assert "data_collection" in text
+
+
+def test_limits_doc_states_every_known_limit():
+    text = read_doc("limits.md")
+    for phrase in (
+        "One call to action style per run",
+        "breaks the cache",
+        "alarm threshold",
+        "shape and never content",
+        "cannot be prevented",
+        "context window",
+    ):
+        assert phrase in text, f"limits.md no longer states: {phrase!r}"
