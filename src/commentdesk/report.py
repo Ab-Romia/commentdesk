@@ -14,16 +14,36 @@ from commentdesk.sanitize import find_repetition, is_plug
 REQUIRED_PRICING = ("input_per_mtok", "cached_per_mtok", "output_per_mtok")
 
 
+def _is_rate(value: object) -> bool:
+    """True for a real numeric rate.
+
+    A quoted rate from a config typo (`input_per_mtok = "1.0"`) is a str, and
+    letting it through would have `uncached * "1.0"` build a repeated string
+    that only fails, confusingly, one line later when it meets a float. A bool
+    is technically an int subclass in Python, but True must not count: it
+    would price a call at 1.0 per million tokens rather than being caught as
+    the non-rate it is.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def estimate_cost(usage: dict, model_cfg: dict) -> float | None:
     """Cost of one call in USD, or None when the rates are not fully known.
 
     None rather than zero, always. A blank cost column reads as "not known",
     which is true. A zero reads as "this call was free", which is a claim and a
     wrong one, and a bake off entry that inherits no pricing would print it on
-    every row of the comparison.
+    every row of the comparison. The same principle covers a rate that is
+    present but not actually a number: it is exactly as unknown as a missing
+    one, so it returns None rather than crashing or silently miscosting.
     """
     pricing = model_cfg.get("pricing") or {}
-    if not all(key in pricing for key in REQUIRED_PRICING):
+    if not all(key in pricing and _is_rate(pricing[key]) for key in REQUIRED_PRICING):
+        return None
+    # Optional, but if present it is billed same as the required three, so a
+    # non-numeric value here is exactly as disqualifying as one of those.
+    cache_write_rate = pricing.get("cache_write_per_mtok", 0)
+    if not _is_rate(cache_write_rate):
         return None
     # Cached input is billed at its own lower rate, so the input rate applies to
     # the uncached remainder rather than to the whole prompt.
@@ -34,9 +54,22 @@ def estimate_cost(usage: dict, model_cfg: dict) -> float | None:
         + usage["completion_tokens"] * pricing["output_per_mtok"]
         # A premium on some routes and nothing on others. Absent means zero for
         # this rate alone, which is why it is not in REQUIRED_PRICING.
-        + usage["cache_write_tokens"] * pricing.get("cache_write_per_mtok", 0)
+        + usage["cache_write_tokens"] * cache_write_rate
     )
     return total / 1e6
+
+
+def _has_price(value: object) -> bool:
+    """True when a row carries an actual cost figure, real zero included.
+
+    A plain `value or ""` treats a genuine `0.0` (a call, or a locally
+    decided row, that truly cost nothing) as falsy and drops it to blank,
+    which then reads as unpriced rather than priced-at-zero. Only a value
+    that is actually absent or blank after stripping counts as unpriced.
+    """
+    if value is None:
+        return False
+    return str(value).strip() != ""
 
 
 def _as_int(value: object) -> int:
@@ -78,10 +111,16 @@ def build_report(rows: list[dict], plug_cap: float, markers: list[str]) -> str:
     calls = [r for r in rows if _as_int(r.get("prompt_tokens")) > 0]
     warm = sum(1 for r in calls if _as_int(r.get("cached_tokens")) > 0)
 
-    priced = [r for r in rows if str(r.get("cost_usd") or "").strip()]
+    priced = [r for r in rows if _has_price(r.get("cost_usd"))]
     if priced:
         total = sum(float(r["cost_usd"]) for r in priced)
         cost_line = "total cost: $" + format(total, ".4f")
+        # "Made a call" reuses the same prompt_tokens > 0 notion as the cache
+        # line above, rather than inventing a second one. A row that made no
+        # call (a locally decided reply, never sent to a model) is not a gap
+        # in pricing and must not count against the total as though it were.
+        if len(priced) < len(calls):
+            cost_line += f" across {len(priced)} of {len(calls)} priced calls"
     else:
         # No row carried a price, so no figure is honest here. Summing to zero
         # would print a confident dollar amount for an unmeasured run.

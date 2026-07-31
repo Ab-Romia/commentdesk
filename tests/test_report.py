@@ -49,6 +49,25 @@ def test_incomplete_pricing_returns_none_and_never_zero():
     assert estimate_cost(USAGE, {"pricing": partial}) is None
 
 
+def test_a_non_numeric_rate_returns_none_and_never_crashes():
+    """A quoted rate from a config typo (`input_per_mtok = "1.0"`) must be
+    treated the same as a missing one: None, not a TypeError two lines later
+    when the string meets a float, and not a silently wrong price. A bool
+    must not count as numeric either, since True would otherwise price a
+    call at 1.0 per million tokens rather than being caught as the non-rate
+    it is."""
+    string_rate = {**PRICING, "input_per_mtok": "1.0"}
+    assert estimate_cost(USAGE, {"pricing": string_rate}) is None
+    none_rate = {**PRICING, "cached_per_mtok": None}
+    assert estimate_cost(USAGE, {"pricing": none_rate}) is None
+    bool_rate = {**PRICING, "output_per_mtok": True}
+    assert estimate_cost(USAGE, {"pricing": bool_rate}) is None
+    # Optional, but if present it is billed the same as the required three,
+    # so a bad value here is exactly as disqualifying as one of those.
+    bad_cache_write = {**PRICING, "cache_write_per_mtok": "1.25"}
+    assert estimate_cost(USAGE, {"pricing": bad_cache_write}) is None
+
+
 MARKERS = ["example.com/field-guide", "link in bio"]
 
 
@@ -94,6 +113,8 @@ def test_report_counts_decisions_the_cache_and_the_cost():
     assert "escalate=1" in report
     assert "cache: 3/4" in report
     assert "$0.0400" in report
+    # Every row that made a call is priced, so the common case stays clean.
+    assert "priced calls" not in report
 
 
 def test_rows_that_came_back_through_a_csv_are_read_the_same_way():
@@ -165,10 +186,53 @@ def test_an_unpriced_run_prints_no_dollar_figure():
 
 def test_a_partly_priced_run_totals_only_the_rows_that_have_a_price():
     rows = [
-        row(id="1", decision="reply", reply="Here you go", cost_usd="0.0100"),
-        row(id="2", decision="reply", reply="Glad it helped", cost_usd=""),
+        row(
+            id="1",
+            decision="reply",
+            reply="Here you go",
+            prompt_tokens=29150,
+            cost_usd="0.0100",
+        ),
+        row(
+            id="2",
+            decision="reply",
+            reply="Glad it helped",
+            prompt_tokens=29150,
+            cost_usd="",
+        ),
     ]
-    assert "$0.0100" in build_report(rows, plug_cap=0.75, markers=MARKERS)
+    report = build_report(rows, plug_cap=0.75, markers=MARKERS)
+    assert "$0.0100" in report
+    # One of the two rows that made a call has no price, so the total must
+    # say it covers only that one rather than reading as a complete total.
+    assert "across 1 of 2 priced calls" in report
+
+
+def test_a_real_zero_cost_counts_as_priced_not_blank():
+    """0.0 is a real answer: a call, or a locally decided row, that truly
+    cost nothing. `value or ""` would otherwise treat it as falsy and drop
+    it to blank, which reads as unpriced rather than priced-at-zero, and
+    would wrongly trip the "N of M priced calls" qualifier above even
+    though every row here is in fact priced."""
+    rows = [
+        row(
+            id="1",
+            decision="reply",
+            reply="Here you go",
+            prompt_tokens=29150,
+            cost_usd=0.0,
+        ),
+        row(
+            id="2",
+            decision="reply",
+            reply="Glad it helped",
+            prompt_tokens=29150,
+            cost_usd="0.0100",
+        ),
+    ]
+    report = build_report(rows, plug_cap=0.75, markers=MARKERS)
+    assert "$0.0100" in report
+    assert "priced calls" not in report
 
 
 def test_repetition_flags_are_appended_and_cover_replies_only():
