@@ -12,10 +12,10 @@ import re
 import time
 from pathlib import Path
 
-from .config import ConfigError
-from .prompt import build_messages
-from .report import estimate_cost
-from .sanitize import sanitize_reply
+from commentdesk.config import ConfigError
+from commentdesk.prompt import build_messages
+from commentdesk.report import estimate_cost
+from commentdesk.sanitize import sanitize_reply
 
 DECISIONS = ("reply", "skip", "escalate")
 
