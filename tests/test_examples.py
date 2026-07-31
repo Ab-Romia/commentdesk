@@ -118,12 +118,19 @@ def test_field_guide_empty_comment_row_is_actually_empty():
         assert rows[str(row_id)]["comment"] != ""
 
 
+@pytest.mark.parametrize("name", sorted(EXAMPLES))
 @pytest.mark.parametrize("relative", ["prompts/voice.md", "prompts/examples.md", "knowledge.md"])
-def test_field_guide_operator_files_carry_no_em_dash(relative):
+def test_example_operator_files_carry_no_em_dash(relative, name):
     """The tool strips em dashes out of replies, so the files that teach it how to
     write must not contain any either. Written as an escape so that this test file
-    is itself free of the character it is looking for."""
-    text = (FIELD_GUIDE / relative).read_text(encoding="utf-8")
+    is itself free of the character it is looking for.
+
+    Parametrized over every shipped example, not only the field guide, so a third
+    product added later is covered automatically without anyone remembering to
+    extend this test by hand.
+    """
+    directory = EXAMPLES[name]
+    text = (directory / relative).read_text(encoding="utf-8")
     assert "\u2014" not in text, "em dash"
     assert "\u2013" not in text, "en dash"
 
