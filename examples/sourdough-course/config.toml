@@ -1,0 +1,58 @@
+# Example product two: a fictional online course. Same five files as the book example,
+# a different product kind, a different CTA mode, a different price shape and a much
+# shorter voice file. Written 2026-07-30; rates and model identifiers need re-checking.
+
+[product]
+name = "Sourdough at Home: The Six Week Course"
+kind = "course"
+price_text = "$29 a month"
+purchase_link = "https://example.com/sourdough"
+escalation_contact = "the studio"
+
+[knowledge]
+source = "text"
+path = "knowledge.md"
+
+[voice]
+rules = "prompts/voice.md"
+examples = "prompts/examples.md"
+
+[behavior]
+cta_mode = "bio_pointer"
+plug_cap = 0.6
+max_reply_sentences = 3
+bot_disclosure_text = "Replies here are drafted by software and checked by one of us before they go out."
+# In bio_pointer mode replies never contain the address, so the markers are the words a
+# reply actually uses. Get this list wrong and every reply reports as not a plug.
+plug_markers = ["in the bio", "in the profile", "example.com/sourdough"]
+banned_emoji = "🙃😅"
+separator = " - "
+platforms = ["instagram", "youtube"]
+
+[cta.bio_pointer]
+instruction = "If someone asks where to sign up, say the link is in the bio. Do not write the address out."
+phrases = ["the link is in the bio", "sign-up is in the bio", "it is all in the profile"]
+
+[model]
+label = "primary"
+base_url = "https://openrouter.ai/api/v1"
+model = "google/gemini-2.5-flash-lite"
+api_key_env = "OPENROUTER_API_KEY"
+
+# USD per 1M tokens as published on 2026-07-30. Re-check before quoting these anywhere.
+[model.pricing]
+input_per_mtok = 0.10
+cached_per_mtok = 0.01
+output_per_mtok = 0.40
+cache_write_per_mtok = 0.083
+
+# data_collection lives inside provider because that is where the gateway reads it.
+# This model family cannot switch reasoning off entirely, so the floor is set instead and
+# the thinking tokens bill as output. Costs stay truthful because every row records the
+# usage the provider actually reported.
+[model.params]
+reasoning = { effort = "low" }
+provider = { data_collection = "deny" }
+
+# No [[bakeoff.models]] table here. The bake-off is optional and this example shows what a
+# config looks like without one.

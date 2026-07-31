@@ -1,0 +1,20 @@
+# What each synthetic comment is for. Tests assert coverage against this file.
+# Every id in comments.csv must appear in at least one category.
+
+[categories]
+content_question = [1, 3, 8, 19]
+purchase_intent = [2]
+price_objection = [4]
+praise = [11]
+provocation = [5]
+non_english = [10]
+no_author = [9]
+empty_comment = [12]
+emoji_only = [13]
+out_of_scope_content = [7]
+gift_question = [14]
+bot_question = [18]
+escalation_billing = [6, 15]
+escalation_piracy = [16]
+escalation_press = [17]
+escalation_medical = [20]
