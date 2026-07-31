@@ -137,3 +137,31 @@ def test_remote_hooks_are_present_and_revision_pinned():
     revs = re.findall(r"(?m)^\s+rev:\s*(\S+)$", config)
     assert revs, "no pinned revisions"
     assert all(rev not in ("HEAD", "master", "main") for rev in revs), revs
+
+
+TEMPLATES = ROOT / ".github" / "ISSUE_TEMPLATE"
+
+
+def test_issue_templates_exist_and_disable_blank_issues():
+    assert (TEMPLATES / "bug_report.yml").exists()
+    assert (TEMPLATES / "feature_request.yml").exists()
+    config = (TEMPLATES / "config.yml").read_text(encoding="utf-8")
+    assert "blank_issues_enabled: false" in config
+    assert "SECURITY.md" in config, "security reports must be routed away from issues"
+
+
+def test_issue_templates_never_ask_for_a_secret():
+    """A form field is where a key gets pasted into a public issue."""
+    for path in sorted(TEMPLATES.glob("*.yml")):
+        text = path.read_text(encoding="utf-8").lower()
+        for word in ("api key", "api_key", "token", "credential", "password"):
+            if word in text:
+                assert "never" in text or "do not" in text, (
+                    f"{path.name} mentions {word!r} without warning against it"
+                )
+
+
+def test_pull_request_template_lists_the_hard_rules():
+    text = (ROOT / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    for rule in ("ascii", "posting", "em dash", "make check"):
+        assert rule in text.lower(), f"pull request template omits: {rule}"

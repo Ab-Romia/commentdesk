@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Ab-Romia/commentdesk/blob/main/SECURITY.md
+    about: Report privately through Security Advisories, never in a public issue.
+  - name: Questions and ideas
+    url: https://github.com/Ab-Romia/commentdesk/discussions
+    about: For anything that is not a defect or a concrete proposal.

@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose something the tool should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please read `docs/limits.md` and the "Things that will be declined" section of
+        `CONTRIBUTING.md` first. Posting, retrieval and per-row prompt variation are
+        decided questions with written reasons.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what happens today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations:
+      required: true
+  - type: textarea
+    id: concepts
+    attributes:
+      label: Which of the three concepts does this belong to
+      description: Configuration, knowledge, or voice. A feature that needs a fourth is usually the wrong feature.
+    validations:
+      required: true

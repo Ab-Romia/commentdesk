@@ -1,0 +1,43 @@
+name: Bug report
+description: Something behaves differently from what the docs say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste an API key, a `.env` file, or a customer comment containing
+        personal data into a public issue. Redact before you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, and what came back.
+      placeholder: |
+        commentdesk run --config config.toml --comments comments.csv --out out
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: commentdesk version
+      description: Output of `commentdesk --version`
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: The `[behavior]` and `[model]` tables, with the key name only and never its value.
+      render: toml
