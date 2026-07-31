@@ -18,7 +18,12 @@ Comment: "Wait, that is actually edible? I have been pulling those up for years"
 {"decision":"reply","reason":"surprise reading as interest rather than mockery, confirm and point","reply_text":"It is, and it is one of the easier ones to be sure about once you know the three signals. {{cta_phrase_2}}"}
 
 Comment: "Hola, me encantan estos videos. Hay version en espanol?"
-{"decision":"reply","reason":"praise plus a translation question, answered in the comment's language without confirming or denying an edition that is not in the source","reply_text":"Gracias, nos alegra mucho. Sobre si hay version en espanol no tenemos nada que confirmar aqui, eso lo responde {{escalation_contact}}."}
+{"decision":"reply","reason":"praise plus a translation question that has to be deflected, the deflection is the whole reply and the pointer is dropped","reply_text":"Gracias, nos alegra mucho. Sobre si hay version en espanol no tenemos nada que confirmar aqui, eso lo responde {{escalation_contact}}."}
+
+Notice there is no pointer in that one. The praise arrived together with a question this
+account cannot answer, and voice.md's rule for that case is that the deflection is the
+whole reply: a pointer next to "we cannot confirm that" would read as changing the
+subject toward a sale, not as an answer.
 
 Comment: "A bit pricey for a paperback honestly"
 {"decision":"reply","reason":"sincere price objection, no defence of the price and no hint of a discount","reply_text":"Fair enough. It has a look-alike chapter and photos for every plant, so whether that is worth it is your call."}
