@@ -397,5 +397,12 @@ def run_one(
         "usage": result["usage"],
         "attempts": result.get("attempts"),
         "latency_s": result.get("latency_s"),
-        "cost_usd": estimate_cost(result["usage"], model_cfg),
+        # Priced only when a call actually reported usage, for the same reason as
+        # run_pipeline above: a rejected key or a connection failure leaves usage at
+        # EMPTY_USAGE, and pricing that arithmetic yields a real, confident 0.000000
+        # for a call that was never billed anything because it never went through.
+        # Blank is the truth. Zero is a claim.
+        "cost_usd": (
+            estimate_cost(result["usage"], model_cfg) if any(result["usage"].values()) else None
+        ),
     }

@@ -571,3 +571,19 @@ def test_run_one_returns_the_whole_trace():
     assert trace["request_messages"] == client.calls[0]["messages"]
     assert trace["cost_usd"] > 0
     assert trace["attempts"] == 1
+
+
+def test_run_one_leaves_the_cost_blank_rather_than_a_false_zero_on_a_rejected_key():
+    # Same defect as I-3, on the path commentdesk chat and the local UI share: a
+    # permanent failure reports no usage at all, and pricing that zero usage against
+    # a real rate table yields a confident, false $0.00 for a call that was never
+    # billed anything because it never happened. Blank is the truth. Zero is a claim.
+    def rejected_key():
+        exc = RuntimeError("401 invalid key")
+        exc.status_code = 401  # pyright: ignore[reportAttributeAccessIssue]
+        return exc
+
+    client = ErrorClient(rejected_key, fail_times=99)
+    trace = run_one(CFG, PRICED, client, "KNOWLEDGE", "SYSTEM", "How much is it?")
+    assert trace["decision"] == "error"
+    assert trace["cost_usd"] is None
