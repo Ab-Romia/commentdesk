@@ -127,6 +127,21 @@ def test_page_reads_only_keys_the_server_sends():
     assert read <= sent
 
 
+def test_meta_json_does_not_require_platforms():
+    """behavior.platforms is optional, same as it already is for the chat subcommand.
+
+    config.py's REQUIRED never lists it, so a config built from the documentation
+    alone can omit it. meta_json used to read it with a bare [], which raised a
+    KeyError from inside do_GET, a route with no try/except around it, instead of
+    the ConfigError this project gives for every other missing setting. It must
+    read as an empty list rather than raise.
+    """
+    state = make_state()
+    state["cfg"] = {"behavior": {}}
+    meta = json.loads(ui.meta_json(state))
+    assert meta["platforms"] == []
+
+
 def test_page_reads_only_trace_keys_a_run_produces():
     """Same contract on the reply payload, and the only check that catches a typo in
     a value name inside an HTML string nothing else parses."""

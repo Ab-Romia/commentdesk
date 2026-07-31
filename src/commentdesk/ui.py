@@ -332,6 +332,18 @@ def meta_json(state):
     every model the config offers with the configured default marked, and the
     platform names. The page carries none of them, which is why it stays correct for
     an operator selling something else somewhere else.
+
+    behavior.platforms is optional, the same as it is for the chat subcommand: it
+    only pre-fills the platform dropdown, and a config that never names one still
+    has a real thing to test, it just leaves the dropdown empty until the operator
+    types a platform of their own on the page. Reading it with .get rather than []
+    matters because this function runs once per /meta request, inside do_GET, which
+    has no try/except around it the way every POST route in this file does. A
+    KeyError here does not become a JSON error the page can show; it unwinds out of
+    the request handler, prints a traceback to the operator's own terminal by way of
+    the server's default error handling, and leaves the browser's fetch to /meta
+    simply failing, with none of the page's controls ever filled in. .get gives the
+    config the same treatment load_config gives every other optional setting instead.
     """
     return json.dumps(
         {
@@ -340,7 +352,7 @@ def meta_json(state):
             "models": [
                 {"label": label, "model": cfg["model"]} for label, cfg in state["models"].items()
             ],
-            "platforms": list(state["cfg"]["behavior"]["platforms"]),
+            "platforms": list(state["cfg"]["behavior"].get("platforms") or []),
         }
     )
 
