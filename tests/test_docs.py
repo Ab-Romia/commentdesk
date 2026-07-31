@@ -139,3 +139,19 @@ def test_limits_doc_states_every_known_limit():
         "context window",
     ):
         assert phrase in text, f"limits.md no longer states: {phrase!r}"
+
+
+def test_community_files_exist_and_state_the_hard_rules():
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    # These four are the rules a well-meaning pull request breaks by accident.
+    for rule in ("non-ascii", "no posting path", "data_collection", "em dash"):
+        assert rule in contributing.lower(), f"CONTRIBUTING.md omits: {rule}"
+    assert "make check" in contributing
+
+    security = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    assert "Security Advisories" in security
+    assert "@" in security, "SECURITY.md needs a fallback contact"
+
+    conduct = (ROOT / "CODE_OF_CONDUCT.md").read_text(encoding="utf-8")
+    assert "Contributor Covenant" in conduct
+    assert "@" in conduct, "CODE_OF_CONDUCT.md needs an enforcement contact"
