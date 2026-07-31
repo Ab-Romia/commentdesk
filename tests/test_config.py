@@ -183,6 +183,44 @@ def test_plug_cap_accepts_the_whole_range(tmp_path: Path, literal: str) -> None:
     assert float(load_config(write(tmp_path, text))["behavior"]["plug_cap"]) == float(literal)
 
 
+@pytest.mark.parametrize("literal", ["true", "false", '"0.75"', "nan", "inf", "[0.75]"])
+def test_plug_cap_must_actually_be_a_number(tmp_path: Path, literal: str) -> None:
+    """`plug_cap = true` used to load: float(True) is 1.0, 1.0 is inside the range,
+    and the alarm could then never fire for the life of that config, because the plug
+    share is a fraction of the replies and cannot exceed 1.0. Nothing errored and the
+    report printed a plug line every run, so the one thing the setting exists to do
+    was silently off. report.py refuses a bool as a pricing rate on exactly this
+    argument; config.py was not making it."""
+    text = set_key(MINIMAL_CONFIG_TOML, "plug_cap", literal)
+    with pytest.raises(ConfigError, match="plug_cap"):
+        load_config(write(tmp_path, text))
+
+
+@pytest.mark.parametrize("literal", ['["a", "b"]', "true", '"two"', "2.5", "0", "-1"])
+def test_max_reply_sentences_must_be_a_whole_number(tmp_path: Path, literal: str) -> None:
+    """It is substituted straight into {{max_reply_sentences}} and sent to the model.
+    build_mapping calls str() on it, so a list arrived in the prompt as Python's repr
+    of that list. engine._string_field exists because str() on a non-string ships a
+    repr into a field a human reads; this is the same hole on the config side, and it
+    reaches the model's input rather than its output."""
+    text = set_key(MINIMAL_CONFIG_TOML, "max_reply_sentences", literal)
+    with pytest.raises(ConfigError, match="max_reply_sentences"):
+        load_config(write(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    "key", ["name", "kind", "price_text", "purchase_link", "escalation_contact"]
+)
+@pytest.mark.parametrize("literal", ["42", "true", '""', '["a"]'])
+def test_a_product_value_must_be_a_non_empty_string(tmp_path: Path, key: str, literal: str) -> None:
+    """Shape, not truth. `price_text = 18` is still not judged for being the right
+    price; it is refused for being a number where the placeholder ships a string, so
+    the currency the operator meant to type cannot go missing silently."""
+    text = set_key(MINIMAL_CONFIG_TOML, key, literal)
+    with pytest.raises(ConfigError, match=key):
+        load_config(write(tmp_path, text))
+
+
 # --- resolve_path -----------------------------------------------------------
 
 

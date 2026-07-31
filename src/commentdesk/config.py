@@ -11,6 +11,7 @@ price that merely looks odd would make the tool feel checked when it is not. The
 person who reviews every reply before it posts is the right place to catch it.
 """
 
+import math
 import os
 import tomllib
 from pathlib import Path
@@ -68,6 +69,7 @@ def load_config(path: str | Path = "config.toml") -> dict:
             if key not in cfg[section]:
                 raise ConfigError(f"missing {section}.{key}")
 
+    _check_product(cfg)
     _check_paths(cfg)
     _check_behavior(cfg)
     _check_model_data_collection(cfg)
@@ -88,6 +90,23 @@ def _require_text(value: object, label: str, hint: str = "") -> str:
     return value
 
 
+def _require_number(value: object, label: str, hint: str) -> float:
+    """A real, finite number. A bool is not one, and neither is a quoted one.
+
+    `True` is an `int` in Python, so a bare isinstance check accepts `plug_cap = true`
+    and `float(True)` is `1.0`. report.py already refuses a bool as a pricing rate for
+    exactly this reason and explains why in a comment; the same argument applies here
+    and was not being made. `nan` and `inf` are both TOML float literals and neither
+    is a threshold. A quoted number is rejected rather than coerced: it means the
+    operator wrote a string where the file's own syntax has a number, and coercing it
+    teaches them the two are interchangeable everywhere else in the file, where they
+    are not.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ConfigError(f"{label} must be {hint}")
+    return float(value)
+
+
 def _require_text_list(value: object, label: str) -> list[str]:
     if not isinstance(value, list) or not value:
         raise ConfigError(f"{label} must be a non-empty list of strings")
@@ -95,6 +114,21 @@ def _require_text_list(value: object, label: str) -> list[str]:
         if not isinstance(item, str) or not item.strip():
             raise ConfigError(f"{label}[{index}] must be a non-empty string")
     return value
+
+
+def _check_product(cfg: dict) -> None:
+    """All five product values are strings, and non-empty ones.
+
+    Shape, not truth: nothing here asks whether a price is right or a link resolves,
+    which is docs/limits.md's stated boundary and stays that way. But `name = 42`
+    used to load and render `{{product_name}}` as "42", and `price_text = 18` used to
+    load and render as "18" with the currency the operator meant to type gone. Both
+    reach the model, and through it the reply a reader sees. build_mapping calls
+    str() on each of these, which is what turned a wrong type into a plausible
+    looking value instead of an error.
+    """
+    for key in REQUIRED["product"]:
+        _require_text(cfg["product"][key], f"product.{key}")
 
 
 def _check_paths(cfg: dict) -> None:
@@ -170,12 +204,26 @@ def _check_behavior(cfg: dict) -> None:
     # An alarm threshold, never a limiter. Nothing stops a run that crosses it:
     # the report says so and a person decides. A limiter would drop exactly the
     # replies most worth reading.
-    try:
-        plug_cap = float(behavior["plug_cap"])
-    except (TypeError, ValueError):
-        raise ConfigError("behavior.plug_cap must be a number between 0 and 1") from None
+    #
+    # The type check is what makes the range check mean anything. `plug_cap = true`
+    # used to load, because float(True) is 1.0 and 1.0 is inside the range, and the
+    # alarm could then never fire for the life of that config: the plug share is a
+    # fraction of the replies and cannot exceed 1.0. Nothing errored, the report
+    # printed a plug line every run, and the one thing the setting exists to do was
+    # silently off. The README devotes a bullet to this setting and docs/limits.md
+    # devotes a section to it.
+    plug_cap = _require_number(behavior["plug_cap"], "behavior.plug_cap", "a number from 0 to 1")
     if not 0 <= plug_cap <= 1:
         raise ConfigError("behavior.plug_cap must be between 0 and 1")
+
+    # Substituted straight into {{max_reply_sentences}} and sent to the model. Any
+    # non-string went through str() unchecked, so a list arrived in the prompt as
+    # Python's repr of it, ['a', 'b'] and all. engine._string_field was added at
+    # exactly this argument for the model's output; this is the same hole on the
+    # config side, and it reaches the model's input.
+    sentences = behavior["max_reply_sentences"]
+    if isinstance(sentences, bool) or not isinstance(sentences, int) or sentences < 1:
+        raise ConfigError("behavior.max_reply_sentences must be a whole number of 1 or more")
 
 
 def _check_model_data_collection(cfg: dict) -> None:

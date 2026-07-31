@@ -13,7 +13,7 @@ one silently. Nothing on this page is checked for being *true*, only for being
 
 ## `[product]`
 
-All five keys are required, non-empty strings, and all five are also placeholders you
+All five keys are required, and each has to be a non-empty string rather than a value that only looks like one: `price_text = 18` is refused, because the placeholder ships a string and the currency you meant to type would go missing without a word. What the string says is never judged; see `docs/limits.md`. All five are also placeholders you
 can use in `voice.md` and `examples.md`; see `docs/writing-a-voice.md` for the full
 placeholder table.
 
@@ -56,8 +56,8 @@ What to write inside the two files they name is the whole subject of
 | Key | Required | What it does |
 |---|---|---|
 | `cta_mode` | yes | names one of your `[cta.<name>]` tables, checked against your own config rather than a fixed list |
-| `plug_cap` | yes | a number from 0 to 1: the alarm threshold `build_report` compares your measured plug rate against. It does not limit anything; see `docs/limits.md`. |
-| `max_reply_sentences` | yes | the number substituted verbatim into `{{max_reply_sentences}}`; see `docs/limits.md` for the one language limit this has |
+| `plug_cap` | yes | a number from 0 to 1: the alarm threshold `build_report` compares your measured plug rate against. It has to be an actual number, not `true` and not a quoted `"0.75"`, because `true` would load as 1.0 and silently make the alarm unable to fire. It does not limit anything; see `docs/limits.md`. |
+| `max_reply_sentences` | yes, a whole number of 1 or more | substituted verbatim into `{{max_reply_sentences}}` and sent to the model, which is why it has to be a number rather than anything that merely survives `str()`; see `docs/limits.md` for the one language limit this has |
 | `bot_disclosure_text` | yes | the exact sentence used when someone asks whether a person wrote the reply, substituted into `{{bot_disclosure_text}}`; see `docs/platform-policy.md` for why this has no off switch |
 | `plug_markers` | yes, non-empty list | the exact substrings `is_plug` looks for, case-insensitively, to decide a reply mentions your product; see `docs/limits.md` for why an empty list is refused rather than defaulted |
 | `separator` | yes, non-empty string | what `sanitize_reply` substitutes for every em dash and en dash it strips out of a draft |
