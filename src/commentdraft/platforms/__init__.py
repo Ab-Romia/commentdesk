@@ -26,6 +26,41 @@ class PlatformError(Exception):
     """A platform name that is not registered, or a [publish] table that is not usable."""
 
 
+class PlatformHalt(BaseException):
+    """A write happened, could not be proved, and the rest of the queue must stop.
+
+    BaseException on purpose, and this is the one deliberate piece of rudeness in
+    the whole package.
+
+    commentdraft.approve wraps the send in `except Exception` so that one refused
+    row does not lose the rest of the queue. That is right for every ordinary
+    failure and exactly wrong for this one: a write path that damages the thing it
+    was pointed at will damage the next one too, and continuing means doing it
+    again while printing a line nobody reads until later. So this class sits
+    outside the hierarchy that handler catches, and the gate re-raises it by name
+    after it has written down what was published.
+
+    published_id is the whole reason this lives in the registry rather than in one
+    connector. A halt is raised when a write is live and unproved, so there is an
+    id, or a suspicion of one, and it is the only thing that lets an operator
+    answer "what did my account post". The gate writes it into the audit file
+    marked unverified before the run ends. Empty is allowed and means the
+    connector could not get an id at all, which is itself worth recording.
+    """
+
+    def __init__(self, message: str, published_id: str = "") -> None:
+        super().__init__(message)
+        self.published_id = published_id
+
+
+# The attribute a connector may hang on any exception to say "this failure left a
+# live write behind, and here is what it is called". PlatformHalt always carries
+# one. An ordinary per-row error may carry one too, for the case where the queue
+# can safely continue and yet something is already published: the gate reads this
+# name off whatever was raised and writes the audit line either way.
+PUBLISHED_ID = "published_id"
+
+
 @runtime_checkable
 class Platform(Protocol):
     """What a connector implements. Kept minimal on purpose.

@@ -62,7 +62,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
-from commentdraft.platforms import Platform, publish_target
+from commentdraft.platforms import PUBLISHED_ID, Platform, PlatformHalt, publish_target
 
 # The four keys, and nothing else. `y` is not under a resting finger and Enter is
 # not one of them, which together are what stop a held key from walking the queue.
@@ -260,7 +260,15 @@ def approve_and_publish(
     is not the one a caller under test capture is writing to.
     """
     stream = _stream(out)
-    counts = {"offered": 0, "sent": 0, "skipped": 0, "failed": 0, "held": 0, "unrecorded": 0}
+    counts = {
+        "offered": 0,
+        "sent": 0,
+        "skipped": 0,
+        "failed": 0,
+        "held": 0,
+        "unrecorded": 0,
+        "halted": 0,
+    }
     scripted = _key_source()
     _preconditions(cfg, config_label, dry_run=dry_run, scripted=scripted)
     queue = _queue(rows, platform_name, stream, counts)
@@ -401,6 +409,14 @@ def _send_approved(
     The record is written after the platform confirms and carries the id the
     platform returned. A line written before the call would claim a post that may
     never have happened, which is worse than no record at all.
+
+    A failure is not the same as nothing having happened. A connector that raises
+    PlatformHalt is telling this function that a write is live and could not be
+    proved, and any connector may hang a published id on an ordinary error for the
+    same reason. Both get a line, marked unverified, because an operator who
+    cannot answer "what did my account post" out of out/published.jsonl has no
+    audit trail at all, and the run that ends in a halt is exactly the run where
+    they will be asked.
     """
     # THE ONE SEND. Every reply that reaches a platform leaves this package on the
     # next line and on no other. README.md anchors its grep on this marker rather
@@ -410,12 +426,26 @@ def _send_approved(
     # tests/test_guarantees.py asserts there is exactly one of these, here.
     try:
         published_id = platform.publish_reply(cfg, approval.parent_id, approval.text)
+    except PlatformHalt as halt:
+        # Written down first, then re-raised by name. The queue is over either
+        # way, and the difference between a halt with a record and a halt without
+        # one is whether the operator can find what is already live.
+        counts["halted"] += 1
+        _line(ledger.stream, f"  the run is stopped: {halt}")
+        _write_unverified(ledger, approval, halt.published_id, counts)
+        _summary(ledger.stream, counts)
+        raise
     except Exception as exc:  # noqa: BLE001 - a connector may raise anything; one row must not lose the queue
         counts["failed"] += 1
         _line(ledger.stream, f"  not sent: {type(exc).__name__}: {exc}")
+        # An ordinary per-row failure that still left something live says so by
+        # naming it. The queue carries on; the record does not wait for the queue.
+        live = getattr(exc, PUBLISHED_ID, "")
+        if live:
+            _write_unverified(ledger, approval, live, counts)
         return
     counts["sent"] += 1
-    line = _entry(ledger, approval, published_id)
+    line = _entry(ledger, approval, published_id, verified=True)
     try:
         _record(ledger, line)
     except OSError as exc:
@@ -430,8 +460,35 @@ def _send_approved(
     _line(ledger.stream, f"  sent, and the platform called it {published_id}")
 
 
-def _entry(ledger: _Ledger, approval: Approval, published_id: str) -> str:
-    """One audit line, built once so its timestamp is read once."""
+def _write_unverified(
+    ledger: _Ledger, approval: Approval, published_id: str, counts: dict[str, int]
+) -> None:
+    """Record a write that happened and was not proved, or say why it could not be.
+
+    Called on a halt, and on any ordinary failure the connector hung an id on. It
+    never raises: this runs while the operator is already being told something bad
+    happened, and a second failure on top of it must not replace that message with
+    a traceback about a file.
+    """
+    line = _entry(ledger, approval, published_id, verified=False)
+    try:
+        _record(ledger, line)
+    except OSError as exc:
+        counts["unrecorded"] += 1
+        _line(ledger.stream, f"  {ledger.log_path} could not be written: {exc}")
+        _line(ledger.stream, f"  keep this line: {line}")
+        return
+    _line(ledger.stream, f"  written to {ledger.log_path}, marked unverified")
+
+
+def _entry(ledger: _Ledger, approval: Approval, published_id: str, *, verified: bool) -> str:
+    """One audit line, built once so its timestamp is read once.
+
+    `verified` is on every line rather than only on the bad ones. A format where
+    the dangerous case is signalled by a missing key is a format whose dangerous
+    case is invisible to anything that reads it with a default, and this file is
+    read by a person answering a complaint about their own account.
+    """
     return json.dumps(
         {
             "at": ledger.now(),
@@ -441,6 +498,7 @@ def _entry(ledger: _Ledger, approval: Approval, published_id: str) -> str:
             "text": approval.text,
             "edited": approval.edited,
             "config": ledger.config_label,
+            "verified": verified,
         },
         ensure_ascii=False,
     )
@@ -660,7 +718,26 @@ def _summary(stream: Writer, counts: dict[str, int]) -> None:
         stream,
         f"  sent {counts['sent']}, skipped {counts['skipped']}, "
         f"failed {counts['failed']}, not offered {counts['held']}, "
-        f"unrecorded {counts['unrecorded']}",
+        f"unrecorded {counts['unrecorded']}, halted {counts['halted']}",
+    )
+    _halt_sentence(stream, counts)
+
+
+def _halt_sentence(stream: Writer, counts: dict[str, int]) -> None:
+    """The one line that says the run did not merely fail, it was stopped.
+
+    Separate from _summary so the counts line stays one statement about numbers,
+    and so this says nothing at all on the ordinary run, where a sentence about
+    halting would be noise the reader learns to skip.
+    """
+    if not counts["halted"]:
+        return
+    _line(
+        stream,
+        "  the run was stopped rather than finished: a write reached the platform and "
+        "could not be proved to have done what it says. Nothing after it was offered. "
+        "The line above it in the audit file is marked unverified: read it, then look "
+        "at what is on the platform before publishing anything else.",
     )
 
 

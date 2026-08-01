@@ -27,6 +27,7 @@ from commentdraft.approve import (
     GateError,
     approve_and_publish,
 )
+from commentdraft.platforms import PlatformHalt
 from conftest import scripted_reviewer
 
 
@@ -296,7 +297,12 @@ def test_an_editor_that_will_not_start_reports_it_and_asks_again(tmp_path):
 
 def test_every_send_appends_one_line_carrying_the_id_the_platform_returned(tmp_path):
     """Without this an operator cannot answer a complaint about something their
-    own account posted, which is a normal thing to be asked."""
+    own account posted, which is a normal thing to be asked.
+
+    `verified` is on every line, including this one. A format where the dangerous
+    case is signalled by a missing key is a format whose dangerous case is
+    invisible to anything reading it with a default.
+    """
     platform = Recorder()
     run([row("c1", "eighteen dollars")], Keys(SEND_KEY), platform, tmp_path)
 
@@ -309,6 +315,7 @@ def test_every_send_appends_one_line_carrying_the_id_the_platform_returned(tmp_p
         "text": "eighteen dollars",
         "edited": False,
         "config": "config.toml",
+        "verified": True,
     }
 
 
@@ -488,6 +495,144 @@ def test_a_send_that_cannot_be_written_down_is_said_out_loud_rather_than_raised(
     assert counts["sent"] == 1
     assert counts["unrecorded"] == 1
     assert '"published_id": "published-c1"' in out.text
+
+
+# --- a write that happened and could not be proved --------------------------
+#
+# A connector raising PlatformHalt is saying two things at once: something is live
+# on somebody's account, and nothing else may be sent. The gate has to honour both,
+# in that order, because the second one is what makes the first one unrecoverable
+# if it is not written down.
+
+
+class Halting:
+    """A connector whose first write halts the queue, carrying an id."""
+
+    def __init__(self, published_id: str = "live-1") -> None:
+        self.calls: list[tuple] = []
+        self.published_id = published_id
+
+    def fetch_comments(self, config: dict, since: str) -> list[dict]:
+        return []
+
+    def publish_reply(self, config: dict, parent_id: str, text: str) -> str:
+        self.calls.append((parent_id, text))
+        raise PlatformHalt("the write could not be proved to be a reply", self.published_id)
+
+
+def test_a_halt_is_written_down_before_it_ends_the_run(tmp_path):
+    """The record used to be written only after a normal return, so the one run
+    an operator most needs a record of was the one run that produced none."""
+    platform = Halting()
+    rows = [row("c1", "first"), row("c2", "second")]
+
+    with pytest.raises(PlatformHalt):
+        run(rows, Keys(SEND_KEY, SEND_KEY), platform, tmp_path)
+
+    (entry,) = log_lines(tmp_path)
+    assert entry["published_id"] == "live-1"
+    assert entry["parent_id"] == "c1"
+    assert entry["text"] == "first"
+    assert entry["verified"] is False
+    assert platform.calls == [("c1", "first")], "the queue carried on past a halt"
+
+
+def test_a_halt_carrying_no_id_is_still_written_down(tmp_path):
+    """An empty id means the connector could not name what it wrote, which is
+    itself the fact worth recording."""
+    platform = Halting(published_id="")
+
+    with pytest.raises(PlatformHalt):
+        run([row("c1", "first")], Keys(SEND_KEY), platform, tmp_path)
+
+    (entry,) = log_lines(tmp_path)
+    assert entry["published_id"] == ""
+    assert entry["verified"] is False
+
+
+def test_a_halt_prints_the_counts_and_says_the_run_was_stopped(tmp_path):
+    """The summary never ran on this path, so a halt ended with the reason and no
+    account of what had already gone out before it."""
+    platform = Halting()
+    rows = [row("c1", "first"), row("c2", "second")]
+
+    out = Out()
+    with pytest.raises(PlatformHalt), scripted_reviewer(Keys(SEND_KEY, SEND_KEY)):
+        approve_and_publish(
+            rows,
+            {},
+            platform,
+            platform_name="video-site",
+            config_label="config.toml",
+            log_path=tmp_path / "out" / "published.jsonl",
+            out=out,
+        )
+
+    assert "halted 1" in out.text
+    assert "the run was stopped rather than finished" in out.text
+    assert "could not be proved to be a reply" in out.text
+
+
+def test_an_ordinary_failure_that_left_something_live_is_recorded_too(tmp_path):
+    """One row's failure, and a reply that exists anyway.
+
+    A misplaced reply is a row the queue can survive and a thing on the Page with
+    this tool's text in it. The queue carries on; the record does not wait for it.
+    """
+
+    class Misplaced(RuntimeError):
+        """What a connector raises for a live reply the queue can survive."""
+
+        published_id = "live-9"
+
+    class Misplacing:
+        def fetch_comments(self, config: dict, since: str) -> list[dict]:
+            return []
+
+        def publish_reply(self, config: dict, parent_id: str, text: str) -> str:
+            raise Misplaced("it landed in the wrong place")
+
+    counts, _ = run([row("c1", "first")], Keys(SEND_KEY), Misplacing(), tmp_path)
+
+    assert counts["failed"] == 1
+    assert counts["halted"] == 0
+    (entry,) = log_lines(tmp_path)
+    assert entry["published_id"] == "live-9"
+    assert entry["verified"] is False
+
+
+def test_an_ordinary_failure_that_left_nothing_writes_nothing(tmp_path):
+    """The common case, and the one that must not grow a line.
+
+    A refused token wrote nothing, and a record claiming otherwise is worse than
+    no record at all.
+    """
+    counts, _ = run([row("c1", "first")], Keys(SEND_KEY), Recorder(fails=True), tmp_path)
+
+    assert counts["failed"] == 1
+    assert log_lines(tmp_path) == []
+
+
+def test_a_halt_whose_record_cannot_be_written_still_ends_the_run(tmp_path):
+    """Two bad things at once. The one that must survive is the halt."""
+    platform = Halting()
+    blocked = tmp_path / "out"
+    blocked.write_text("this is a file, not a directory", encoding="utf-8")
+
+    out = Out()
+    with pytest.raises(PlatformHalt), scripted_reviewer(Keys(SEND_KEY)):
+        approve_and_publish(
+            [row("c1", "first")],
+            {},
+            platform,
+            platform_name="video-site",
+            config_label="config.toml",
+            log_path=blocked / "published.jsonl",
+            out=out,
+        )
+
+    assert '"published_id": "live-1"' in out.text
+    assert "keep this line" in out.text
 
 
 # --- what is displayed is what is sent --------------------------------------

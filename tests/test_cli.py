@@ -672,3 +672,53 @@ def test_publish_sends_one_reply_per_keystroke_and_records_it(
     assert entry["parent_id"] == "1"
     assert entry["edited"] is False
     assert entry["config"] == str(config)
+
+
+class HaltingPlatform:
+    """A connector whose write halts the queue, carrying the id it left live."""
+
+    calls: ClassVar[list[tuple]] = []
+
+    def fetch_comments(self, config, since):
+        return []
+
+    def publish_reply(self, config, parent_id, text):
+        from commentdraft.platforms import PlatformHalt
+
+        HaltingPlatform.calls.append((parent_id, text))
+        raise PlatformHalt("the write could not be proved to be a reply", "live-1")
+
+
+def test_publish_reports_a_halt_rather_than_letting_a_traceback_out(
+    tmp_path, capsys, monkeypatch, at_a_keyboard
+):
+    """A halt used to leave the command with a bare traceback.
+
+    That reads as a crash in the tool rather than as a report about somebody's
+    Page, and it exited 1: the same code as a run where one row was refused and
+    everything else went fine. Those are not the same event, so they do not share
+    a number, and the message names what is live and where the record is.
+    """
+    import json
+
+    from commentdraft.cli import HALT_EXIT
+    from commentdraft.platforms import PLATFORMS
+
+    HaltingPlatform.calls = []
+    monkeypatch.setitem(PLATFORMS, "fixture-platform", HaltingPlatform)
+    clear_keys(monkeypatch)
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    config, out = build_publishable(tmp_path)
+    pressed = iter(["y"])
+
+    with scripted_reviewer(lambda: next(pressed)):
+        rc = main(["publish", "--config", str(config), "--out", str(out)])
+
+    err = capsys.readouterr().err
+    assert rc == HALT_EXIT
+    assert rc not in (0, 1, 2), "a halt shares an exit code with an ordinary outcome"
+    assert "Traceback" not in err
+    assert "live-1" in err
+    assert "published.jsonl" in err
+    (line,) = (out / "published.jsonl").read_text(encoding="utf-8").splitlines()
+    assert json.loads(line)["verified"] is False

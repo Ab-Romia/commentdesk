@@ -4,7 +4,10 @@
 Startup problems print one line and return 2. A traceback at that point would be
 noise: nothing has run, and the only useful fact is which file or which variable
 is wrong. A run that reached the model and lost rows returns 1 instead, so a
-scripted caller can tell a partial pass from a clean one.
+scripted caller can tell a partial pass from a clean one. `publish` has a third:
+3 means the queue was stopped part way because a write reached the platform and
+could not be proved, which is the one outcome where a person has to go and look
+at something before running anything again.
 """
 
 from __future__ import annotations
@@ -32,6 +35,12 @@ from .sources import SourceError, load_knowledge
 from .sources.pdf_vision import transcribe_pdf
 
 SAFE_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+
+# `publish` only, and distinct from both of the other two on purpose. 2 is a setup
+# that never ran and 1 is a run that finished with something refused. A halt is
+# neither: the queue was stopped part way because a write reached the platform and
+# could not be proved, and the operator has something to go and look at.
+HALT_EXIT = 3
 
 
 def _fail(message: str) -> int:
@@ -306,7 +315,13 @@ def cmd_publish(args) -> int:
     # Lazy, on the same rule as cmd_ui: a subcommand's dependencies load when that
     # subcommand runs, so importing this module still touches nothing.
     from .approve import GateError, approve_and_publish, at_a_keyboard
-    from .platforms import PlatformError, find_platform, get_platform, publish_target
+    from .platforms import (
+        PlatformError,
+        PlatformHalt,
+        find_platform,
+        get_platform,
+        publish_target,
+    )
 
     try:
         platform_name, credential_env = publish_target(cfg)
@@ -372,6 +387,20 @@ def cmd_publish(args) -> int:
         # The gate refuses for the same two reasons this function does, so an
         # operator only reaches this line by calling in a way that skipped them.
         return _fail(str(e))
+    except PlatformHalt as e:
+        # Caught by name, and given an exit code of its own. Without this the halt
+        # left a bare traceback, which reads as a crash in the tool rather than as
+        # a report about somebody's Page, and it exited 1: the same code as a run
+        # where one row was refused and everything else went fine. Those are not
+        # the same event and a scripted caller must not read them as one.
+        print(f"the run was stopped: {e}", file=sys.stderr)
+        if e.published_id:
+            print(f"what is already live: {e.published_id}", file=sys.stderr)
+        print(
+            f"the audit line for it is in {Path(args.out) / 'published.jsonl'}, marked unverified",
+            file=sys.stderr,
+        )
+        return HALT_EXIT
     # Non-zero when a send was refused by the platform, or made and not written
     # down, on the same rule as a run that lost rows: a scripted caller must not
     # mistake a partial pass for a clean one. A reply the reviewer skipped is not
