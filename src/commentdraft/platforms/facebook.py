@@ -36,16 +36,25 @@ Two things in here are not ordinary connector plumbing and both are load bearing
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import warnings
 from collections.abc import Callable, Iterator
 from datetime import datetime
+from typing import NoReturn
 
-from commentdraft.platforms import PUBLISH_SECTION, PlatformError, publish_target, register
+from commentdraft.platforms import (
+    PUBLISH_SECTION,
+    PlatformError,
+    PlatformHalt,
+    publish_target,
+    register,
+)
 
 PLATFORM_NAME = "facebook"
 
@@ -70,13 +79,21 @@ TIMEOUT = 30
 # past this many pages is following a cursor that is not advancing.
 MAX_PAGES = 200
 
-# Requested explicitly rather than left to Meta's defaults, and both of these are
-# corrections to a default that hides data:
-#   filter=stream         the default, toplevel, drops replies to replies, and a
-#                         tool that reads with it looks like it is ignoring half
-#                         a thread it then replies into.
-#   live_filter=no_filter the default, filter_low_quality, hides comments from
-#                         the API that a human moderator can see on the Page.
+# Requested explicitly rather than left to Meta's defaults. Only one of these two
+# changes what comes back, and saying which is which matters:
+#   filter=stream         the correction. Meta's default, toplevel, drops replies
+#                         to replies, and a tool that reads with it looks like it
+#                         is ignoring half a thread it then replies into. This is
+#                         the whole of the fix.
+#   live_filter=no_filter asked for and inert nearly everywhere. Meta's own text:
+#                         "For comments on a Live streaming video ... In all other
+#                         circumstances this parameter is ignored." It is sent
+#                         because it costs nothing and because a Page that starts
+#                         streaming should not need a code change, not because it
+#                         reveals anything on an ordinary post. The claim that it
+#                         un-hides comments a human moderator can see is Meta's
+#                         description of the parameter, contradicted by Meta's own
+#                         sentence about when the parameter applies.
 COMMENT_QUERY = {
     "fields": "id,message,created_time,from{id,name},parent{id},is_hidden,can_comment",
     "filter": "stream",
@@ -86,9 +103,20 @@ COMMENT_QUERY = {
 
 POST_QUERY = {"fields": "id,message,created_time", "limit": "100"}
 
+# The Page's own posts. Not /feed, which carries posts other people made on the
+# Page and posts that merely tag it: replying to those from the Page's account is
+# not what an operator asked for, and the ids are not the operator's to answer
+# under. published_posts is the edge that means "what this Page published".
+POSTS_EDGE = "published_posts"
+
 # The fields the write check reads back. message is not compared against what was
 # sent: see publish_reply for why it is fetched anyway.
 VERIFY_FIELDS = "id,parent{id},message"
+
+# The fields read off the comment a person approved a reply to, when this
+# connector has to answer "is that comment still the customer's own words". Two
+# fields, because that is the whole question.
+PARENT_FIELDS = "id,message"
 
 # What each Graph error code and subcode means to the person holding the token,
 # and what they have to do about it. Held as a table rather than as a chain of
@@ -96,31 +124,49 @@ VERIFY_FIELDS = "id,parent{id},message"
 # nobody mapped falls through to a message that says so instead of to silence.
 #
 # A tuple key of (code, None) is the fallback for that code when the subcode is
-# absent or is one nobody mapped.
-CAUSES: dict[tuple[int, int | None], str] = {
-    (190, 458): (
+# absent or is one nobody mapped. A key of (None, subcode) is the reading of a
+# subcode whatever code carried it: Meta prints the 190 subcodes under code 102
+# and under a bare OAuthException as well, and a table keyed only on the pair told
+# an operator whose token had died in a way it names precisely that this was a
+# code nobody had a reading for.
+CAUSES: dict[tuple[int | None, int | None], str] = {
+    (None, 458): (
         "the app is no longer installed for this account, which usually means the "
         "app was deauthorised. Log in again and exchange a new Page token."
     ),
-    (190, 459): (
+    (None, 459): (
         "the account is checkpointed. Open facebook.com in a browser and clear "
         "whatever it asks for first, then log in again and exchange a new Page token."
     ),
-    (190, 460): (
+    (None, 460): (
         "the password on the account behind this token was changed, which "
         "invalidates the token. Log in again and exchange a new Page token."
     ),
-    (190, 463): (
+    (None, 463): (
         "the token has expired, been revoked, or is otherwise invalid. Log in "
         "again and exchange a new Page token."
     ),
-    (190, 464): (
+    (None, 464): (
         "the account is unconfirmed. Open facebook.com in a browser and confirm "
         "it first, then log in again and exchange a new Page token."
     ),
-    (190, 467): (
+    (None, 467): (
         "the token has expired, been revoked, or is otherwise invalid. Log in "
         "again and exchange a new Page token."
+    ),
+    # The Page role death, which the fallback below used to swallow. Meta's own
+    # words for it are "User associated with the Page access token does not have
+    # an appropriate role on the Page", and the fix is not the fix for any other
+    # 190: exchanging a new token gets a token that dies exactly the same way,
+    # because a Page token is unique to one Page, one admin and one app, and the
+    # thing that broke is the human's role on the Page.
+    (None, 492): (
+        "the user associated with the Page access token does not have an "
+        "appropriate role on the Page. This is not a token that expired and "
+        "exchanging a new one will produce another token that fails here: a Page "
+        "token is tied to one person's role on one Page, so somebody has to give "
+        "that account its role back, or at minimum the MODERATE and CREATE_CONTENT "
+        "tasks, before any token can work."
     ),
     (190, None): (
         "the access token is not usable any more. Log in again and exchange a new Page token."
@@ -138,9 +184,28 @@ CAUSES: dict[tuple[int, int | None], str] = {
         "change and nothing wrong. Run the login flow again and grant the pages "
         "permissions, then exchange a new Page token."
     ),
+    (200, None): (
+        "the token does not carry the permission this call needs. Meta prints this "
+        "as a permissions error and the specific meaning varies by permission. For "
+        "this connector it is one of pages_read_engagement, pages_read_user_content "
+        "or pages_manage_engagement: run the login flow again, grant all of them, "
+        "and exchange a new Page token."
+    ),
     (1705, None): (
         "this call was made as a person rather than as the Page. Exchange the user "
         "token for a Page token and put that in the credential variable."
+    ),
+    (100, None): (
+        "a parameter on the call was rejected, which for this connector usually "
+        "means the id it was pointed at does not exist, is not visible to this "
+        "token, or is a Page id that belongs to somebody else. Check "
+        f"{PUBLISH_SECTION}.{PAGE_KEY} against the Page the token was issued for."
+    ),
+    (368, None): (
+        "the action was blocked as abusive or otherwise disallowed. This is a "
+        "temporary block on the account or the Page rather than a bad call, and "
+        "publishing again through it makes it longer. Stop, wait it out, and read "
+        "Meta's spam policy before sending another batch."
     ),
     (4, None): (
         "the app has reached its rate limit. Wait before calling again: retrying "
@@ -151,15 +216,26 @@ CAUSES: dict[tuple[int, int | None], str] = {
         "retrying into a rate limit extends the block rather than shortening it."
     ),
     (32, None): (
-        "this Page has reached its rate limit. The Pages budget scales with the "
-        "number of people who engaged with the Page in the last day, so a quiet "
-        "Page has a small one. Wait before calling again."
+        "the user or app whose token is being used in this Pages API request has "
+        "reached its rate limit. The budget is 4800 calls a day multiplied by the "
+        "number of people who engaged with the Page in the last 24 hours, so a "
+        "quiet Page has almost none. Wait before calling again."
     ),
     (613, None): (
         "a custom rate limit has been reached. Wait before calling again rather "
         "than retrying, which extends the block."
     ),
+    (80001, None): (
+        "the per-Page call limit for this edge has been reached. Wait before "
+        "calling again: the block lengthens while calls keep arriving."
+    ),
 }
+
+# Meta documents 200-299 as one band, "Multiple values depending on permission",
+# and prints no table of the individual codes. A number in it that nothing above
+# names is still a permissions failure and not a mystery, so it is read as one
+# rather than falling through to the message that says nobody mapped this.
+PERMISSION_CODES = range(200, 300)
 
 
 class FacebookError(Exception):
@@ -167,14 +243,25 @@ class FacebookError(Exception):
 
     One row's failure. commentdraft.approve catches this, counts the row failed,
     prints the reason under the reply it belongs to, and offers the next row.
+
+    published_id is empty for almost all of them, because almost all of them are
+    raised before anything was written. It is set on the one shape that is not: a
+    reply that is live and in the wrong place, where the queue can safely carry on
+    and yet something exists on the Page with this tool's text in it. The gate
+    reads it off whatever was raised and writes the audit line for it.
     """
 
+    def __init__(self, message: str, published_id: str = "") -> None:
+        super().__init__(message)
+        self.published_id = published_id
 
-class ReplyInvariantError(BaseException):
+
+class ReplyInvariantError(PlatformHalt):
     """A write happened and could not be proved to be a reply. Stop everything.
 
-    BaseException on purpose, and this is the one deliberate piece of rudeness in
-    the connector.
+    Outside the hierarchy commentdraft.approve catches per row, because it
+    inherits from the registry's PlatformHalt, which is a BaseException. That is
+    the one deliberate piece of rudeness here.
 
     commentdraft.approve wraps the send in `except Exception` so that one refused
     row does not lose the rest of the queue, which is right for every ordinary
@@ -183,15 +270,13 @@ class ReplyInvariantError(BaseException):
     every remaining row too, and continuing the queue means damaging the next
     comment and the one after it while printing a line nobody reads until later.
 
-    So this class sits outside the hierarchy that handler catches. The run ends.
-    That is deliberately louder than anything else in this package, because the
-    thing it reports is that somebody's own words may have been overwritten by
-    ours, and there is no version of that worth continuing through.
+    So the run ends. That is deliberately louder than anything else in this
+    package, because the thing it reports is that somebody's own words may have
+    been overwritten by ours, and there is no version of that worth continuing
+    through.
 
-    The right long term home for this is the registry rather than one connector:
-    a platform level "halt the queue" type that the gate re-raises by name. That
-    is a change to a module the approval tests are anchored on, so it is written
-    up in notes/platforms/facebook-connector-report.md rather than made here.
+    The type lives in the registry now rather than in this connector, so the gate
+    can re-raise it by name and write down the id it carries before it does.
     """
 
 
@@ -214,11 +299,24 @@ _TEST_RUNNER = "pytest"
 
 
 def _transport() -> Callable[[str, str, dict | None], tuple[int, str]]:
-    """The thing that makes the request: the real one, or the suite's."""
+    """The thing that makes the request: the real one, or the suite's.
+
+    Fails closed under a test runner. This used to fall through to the real
+    transport when no fake was installed, which made "the whole suite runs with no
+    network and no credential" a convention that held because every test happened
+    to remember, rather than a property of the code. One test written without the
+    seam and the suite reaches graph.facebook.com from somebody's laptop, or from
+    CI, with whatever token is in that environment.
+    """
     if _TEST_RUNNER not in sys.modules:
         return _request
     if _scripted_transport is None:
-        return _request
+        raise FacebookError(
+            f"{_TEST_RUNNER} is running and no fake transport is installed, so this call "
+            "would go to the real Graph API. Install one for the test that made this "
+            "call: tests/test_facebook.py has wired(), which is the only supported way "
+            "to reach the seam."
+        )
     return _scripted_transport
 
 
@@ -229,6 +327,13 @@ def _request(method: str, url: str, body: dict | None) -> tuple[int, str]:
     place the code and subcode live. Letting urllib raise on it would throw away
     the one thing this connector needs in order to say anything useful, so the
     status comes back as a value and _call reads the body either way.
+
+    Everything else that can come out of a socket becomes a FacebookError. urllib
+    raises OSError in shapes URLError does not cover, and http.client raises its
+    own hierarchy, RemoteDisconnected among them, which is what a server closing a
+    keep alive connection produces. Those used to escape this function as ordinary
+    Exceptions: harmless on a read, and on the write check the difference between
+    "the queue stops" and "the queue writes again".
     """
     data = None
     headers = {"Accept": "application/json"}
@@ -245,6 +350,10 @@ def _request(method: str, url: str, body: dict | None) -> tuple[int, str]:
         raise FacebookError(f"could not reach {GRAPH_HOST}: {exc.reason}") from exc
     except TimeoutError as exc:
         raise FacebookError(f"{GRAPH_HOST} did not answer within {TIMEOUT} seconds") from exc
+    except (OSError, http.client.HTTPException) as exc:
+        raise FacebookError(
+            f"the connection to {GRAPH_HOST} failed: {type(exc).__name__}: {exc}"
+        ) from exc
 
 
 def _redacted(url: str) -> str:
@@ -300,21 +409,45 @@ def _named(error: dict) -> FacebookError:
     more specific of the two, and dropping it in favour of our reading of the
     code is how a support thread ends with nobody knowing what the API said.
     """
-    code = error.get("code")
-    subcode = error.get("error_subcode")
+    code = error.get("code") if isinstance(error.get("code"), int) else None
+    subcode = error.get("error_subcode") if isinstance(error.get("error_subcode"), int) else None
     said = str(error.get("message") or "").strip()
-    cause = ""
-    if isinstance(code, int):
-        cause = CAUSES.get((code, subcode if isinstance(subcode, int) else None), "")
-        if not cause:
-            cause = CAUSES.get((code, None), "")
-    if not cause:
-        cause = "this code is not one this connector has a reading for."
+    kind = str(error.get("type") or "").strip()
+    cause = _cause(code, subcode)
     where = f"code {code}"
+    if code is None:
+        where = kind or "no code"
     if subcode is not None:
-        where = f"code {code}, subcode {subcode}"
+        where = f"{where}, subcode {subcode}"
     detail = f' Meta said: "{said}"' if said else ""
     return FacebookError(f"facebook refused the call ({where}): {cause}{detail}")
+
+
+def _cause(code: int | None, subcode: int | None) -> str:
+    """The reading of one (code, subcode), in the order that finds the specific one.
+
+    The pair first, then the subcode on its own, then the code on its own, then
+    the permissions band. The subcode step is the one that was missing: Meta
+    prints the same token subcodes under code 190, under code 102, and under an
+    OAuthException carrying no code this connector can read, and a lookup keyed
+    only on the pair reported the most precisely diagnosable failures in the whole
+    table as codes nobody had a reading for.
+    """
+    if code is not None and subcode is not None:
+        pair = CAUSES.get((code, subcode), "")
+        if pair:
+            return pair
+    if subcode is not None:
+        by_subcode = CAUSES.get((None, subcode), "")
+        if by_subcode:
+            return by_subcode
+    if code is not None:
+        by_code = CAUSES.get((code, None), "")
+        if by_code:
+            return by_code
+        if code in PERMISSION_CODES:
+            return CAUSES[(200, None)]
+    return "this code is not one this connector has a reading for."
 
 
 def _publish_table(config: dict) -> dict:
@@ -441,12 +574,16 @@ def _paged(url: str) -> Iterator[dict]:
             if isinstance(item, dict):
                 yield item
         seen += 1
-        if seen >= MAX_PAGES:
+        following = _next_link(payload)
+        # After the next link is read, not before it. Checked first, a walk that
+        # finished on its last page raised as though the cursor were stuck: the
+        # cap is a loop detector, and there is no loop to detect when the platform
+        # has just said there is nothing after this.
+        if following and seen >= MAX_PAGES:
             raise FacebookError(
                 f"stopped after {MAX_PAGES} pages of {_redacted(url)}. The paging cursor "
                 "is not advancing, so the result would be wrong rather than merely long."
             )
-        following = _next_link(payload)
 
 
 def _next_link(payload: dict) -> str | None:
@@ -497,6 +634,56 @@ def _title(post: dict) -> str:
     return ""
 
 
+def _is_a_reply(comment: dict) -> bool:
+    """Whether this comment hangs under another comment rather than under the post.
+
+    Read off the parent field, which COMMENT_QUERY already asks for and which the
+    connector used to fetch and throw away. Anything present under `parent` counts,
+    including a shape this code cannot read: an unreadable parent is not evidence
+    of there being none, and the safe reading of "this may be a reply to a reply"
+    is to leave it out of a queue whose replies would land somewhere else.
+    """
+    return comment.get("parent") is not None
+
+
+def _comments_on(post_id: str, title: str, token: str, cutoff: datetime | None) -> list[dict]:
+    """The rows for one post, or none and a warning naming the post that failed.
+
+    The whole walk of one post is inside the try, not each page, because a cursor
+    that dies half way through leaves a partial list nobody can tell from a
+    complete one, and half a post's comments presented as all of them is worse
+    than none of them plus a line saying so.
+    """
+    rows: list[dict] = []
+    try:
+        for comment in _paged(_url(f"{post_id}/comments", token, COMMENT_QUERY)):
+            comment_id = comment.get("id")
+            if not isinstance(comment_id, str) or not comment_id:
+                continue
+            if _is_a_reply(comment):
+                continue
+            if not _newer(_parse_time(comment.get("created_time")), cutoff):
+                continue
+            message = comment.get("message")
+            rows.append(
+                {
+                    "id": comment_id,
+                    "platform": PLATFORM_NAME,
+                    "author": _author(comment),
+                    "comment": message.strip() if isinstance(message, str) else "",
+                    "post_title": title,
+                }
+            )
+    except FacebookError as exc:
+        warnings.warn(
+            f"no comments were read for post {post_id}: {exc}. Every other post in this "
+            "run was read normally, so this is one post missing rather than a failed run.",
+            stacklevel=2,
+        )
+        return []
+    return rows
+
+
 @register(PLATFORM_NAME)
 class Facebook:
     """Read comments on the operator's own Page posts, and reply to one.
@@ -509,8 +696,9 @@ class Facebook:
     def fetch_comments(self, config: dict, since: str | None = None) -> list[dict]:
         """Every comment on the Page's own posts, in engine.IN_FIELDS shape.
 
-        Two edges, in the order the research file establishes: the Page's feed
-        for the operator's own posts, then each post's comments.
+        Two edges: the Page's published_posts for the operator's own posts, then
+        each post's comments. Not /feed, which also carries posts visitors made on
+        the Page and posts that merely tag it.
 
         The since filter is applied here rather than passed to Meta. The comments
         edge does document a since parameter, but this connector has never been
@@ -518,37 +706,35 @@ class Facebook:
         measure something other than creation time drops rows silently. Filtering
         what came back is slower and cannot be wrong in that direction.
 
+        One thing is dropped, and only one: a comment that arrives carrying a
+        parent, which is a reply to another comment rather than a comment on the
+        post. That is not tidiness. filter=stream asks for them by design, and
+        Facebook flattens threads, so a reply written under one of them comes back
+        parented to the top level comment instead and the write check reads that
+        as a reply in the wrong place. Queueing a row this connector cannot
+        correctly reply to is offering a person a keystroke that cannot work.
+
         Nothing is dropped for being hidden or for being closed to replies. Both
         facts are read from the API and there is nowhere in IN_FIELDS to carry
         them, and silently discarding a customer's comment because a flag on it
         says a reply would fail is a worse answer than drafting one and finding
         out at the send. That gap is written up in the connector report.
+
+        One unreadable post does not lose the rest. An expired post is documented
+        as inaccessible, and a walk that raised on it threw away every row already
+        collected from every post before it, which is a run that reads as a Page
+        with no comments. The post is named through the warnings module and the
+        walk carries on.
         """
         token = _token(config)
         page_id = _page_id(config)
         cutoff = _cutoff(since)
         rows: list[dict] = []
-        for post in _paged(_url(f"{page_id}/feed", token, POST_QUERY)):
+        for post in _paged(_url(f"{page_id}/{POSTS_EDGE}", token, POST_QUERY)):
             post_id = post.get("id")
             if not isinstance(post_id, str) or not post_id:
                 continue
-            title = _title(post)
-            for comment in _paged(_url(f"{post_id}/comments", token, COMMENT_QUERY)):
-                comment_id = comment.get("id")
-                if not isinstance(comment_id, str) or not comment_id:
-                    continue
-                if not _newer(_parse_time(comment.get("created_time")), cutoff):
-                    continue
-                message = comment.get("message")
-                rows.append(
-                    {
-                        "id": comment_id,
-                        "platform": PLATFORM_NAME,
-                        "author": _author(comment),
-                        "comment": message.strip() if isinstance(message, str) else "",
-                        "post_title": title,
-                    }
-                )
+            rows.extend(_comments_on(post_id, _title(post), token, cutoff))
         return rows
 
     def publish_reply(self, config: dict, parent_id: str, text: str) -> str:
@@ -583,6 +769,23 @@ class Facebook:
         teach its operator to stop reading the failures. It is fetched because it
         is the evidence: on an edit it is our text sitting where the customer's
         words used to be, and the operator needs to see that in the failure.
+
+        THE RULE UNDERNEATH ALL OF IT: A 2xx POST IS A WRITE THAT HAPPENED.
+
+        Not every answer to that write carries an id this connector can use.
+        Graph answers an update with {"success": true}, and an id can come back as
+        a number rather than as a string. Neither of those is "nothing was
+        created", and treating them that way is what let three comments be
+        overwritten while the operator was told nothing had been sent. A number is
+        read as the id it is. An answer with no id at all sends this connector to
+        read the parent comment back, and whatever it finds there, the run ends:
+        either the parent is now holding our text, which is the overwrite, or
+        nobody can say what the write did, which is not something to publish
+        through again.
+
+        Nothing here retries. One keystroke is at most one POST, and that is the
+        property the whole approval claim rests on. A retry inside this method
+        would break it silently and no test above this layer would notice.
         """
         token = _token(config)
         parent = (parent_id or "").strip()
@@ -591,14 +794,108 @@ class Facebook:
         if not text.strip():
             raise FacebookError("there is no reply text to send")
         created = _call("POST", _url(f"{parent}/comments", token), {"message": text})
-        published = created.get("id")
-        if not isinstance(published, str) or not published:
-            raise FacebookError("the platform accepted the reply and returned no id for it")
-        if published == parent:
-            raise ReplyInvariantError(_overwritten(parent))
+        published = _identifier(created.get("id"))
+        if not published:
+            raise _unusable(parent, token, text)
+        if _same_comment(published, parent):
+            raise ReplyInvariantError(_overwritten(parent), parent)
         seen = _verify(published, parent, token)
-        _confirm(published, parent, seen)
+        _confirm(published, parent, token, text, seen)
         return published
+
+
+def _identifier(value: object) -> str:
+    """An id out of a Graph response, as text, or an empty string.
+
+    A number is an id. Graph's own comment ids are digits with an underscore in
+    them and arrive quoted, but a JSON document is allowed to spell 98765 as a
+    number and the previous version of this function refused that answer as "no
+    id", which threw away the one thing that could locate a live write. A bool is
+    refused before isinstance can matter, because True is an int in Python and
+    "the id is True" is not an id.
+    """
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _same_comment(left: str, right: str) -> bool:
+    """Whether two ids name the same comment, in either of the two spellings.
+
+    Facebook writes a comment id both as `98765` and as `1122334455_98765`, the
+    second prefixed with the object it hangs under, and it does not promise which
+    one an endpoint hands back. Exact equality was the whole overwrite alarm, so
+    an edit answered with the other spelling of the id it was pointed at walked
+    straight past it and was reported to the operator as a reply that had merely
+    landed in the wrong place, with the words "Nothing was overwritten" on it.
+
+    The segment after the last underscore is the comment's own id, so it is
+    compared as well. Two different comments cannot share it.
+    """
+    if left == right:
+        return True
+    return left.rsplit("_", 1)[-1] == right.rsplit("_", 1)[-1]
+
+
+def _parent_state(token: str, parent: str, text: str) -> tuple[bool, str]:
+    """Read the parent comment back and say whether our text is standing in it.
+
+    Returns (overwritten, evidence). This is the only thing in this connector
+    entitled to say the customer's comment is intact, and it exists because the
+    two mismatch branches below used to say it without asking anybody.
+
+    A failed read is not a clean answer, so it comes back as "not overwritten"
+    with the failure as the evidence, and every caller words its own message so
+    that an unread parent is never described as an unharmed one.
+    """
+    try:
+        seen = _call("GET", _url(parent, token, {"fields": PARENT_FIELDS}))
+    # Every exception, deliberately: any failure here is an unread parent rather
+    # than a safe one, and the caller words its message accordingly.
+    except Exception as exc:  # noqa: BLE001
+        return False, f"comment {parent} could not be read back: {type(exc).__name__}: {exc}"
+    message = seen.get("message")
+    if not isinstance(message, str):
+        return False, f"comment {parent} came back with no readable message field"
+    if _same_text(message, text):
+        return True, f"comment {parent} now holds the text that was just sent"
+    return False, f"comment {parent} still holds its own text, so it was not overwritten"
+
+
+def _same_text(left: str, right: str) -> bool:
+    """Whether two messages are the same words, allowing for platform whitespace."""
+    return " ".join(left.split()) == " ".join(right.split())
+
+
+def _unusable(parent: str, token: str, text: str) -> PlatformHalt:
+    """A 2xx write whose answer carries no id, decided by reading the parent back.
+
+    This is the case the whole connector exists for and the one it used to miss.
+    {"success": true} is exactly how Graph answers an update, and answering it
+    with an ordinary per-row failure meant the queue wrote again, and again, while
+    the summary said nothing had been sent at all.
+
+    So the question is not "did we get an id" but "what is in that comment now".
+    If our text is standing in it, that is the overwrite, said in the words the
+    overwrite gets. If it is not, the write is somewhere nobody can name, which is
+    not a row to move past either.
+    """
+    overwritten, evidence = _parent_state(token, parent, text)
+    if overwritten:
+        return ReplyInvariantError(f"{_overwritten(parent)} Read back: {evidence}.", parent)
+    return ReplyInvariantError(
+        f"the write to comment {parent} was accepted and answered with no id, so there is "
+        "nothing to read back and nothing to record. A write that was accepted is a write "
+        f"that happened. Read back: {evidence}. Nobody can say from here whether a reply "
+        f"exists under {parent}, whether one landed on the post, or whether something else "
+        f"was changed, so the queue is stopped rather than sending again through a path "
+        f"that answers like this. Open comment {parent} on the Page and look.",
+        parent,
+    )
 
 
 def _verify(published: str, parent: str, token: str) -> dict:
@@ -608,38 +905,107 @@ def _verify(published: str, parent: str, token: str) -> dict:
     did not happen". It is "the send happened and nobody can say what it did",
     which is the one outcome that must not be reported as either success or an
     ordinary per-row failure.
+
+    Every exception is caught, not only FacebookError. urllib raises OSError
+    families that _request did not used to wrap, and http.client raises its own,
+    so a connection dropped on this one GET escaped as an ordinary Exception, the
+    gate counted one failed row, and the queue carried on offering the next one
+    with a live unverified reply behind it.
     """
     try:
         return _call("GET", _url(published, token, {"fields": VERIFY_FIELDS}))
-    except FacebookError as exc:
-        raise ReplyInvariantError(_unverified(published, parent, str(exc))) from exc
+    # Deliberately every exception, on the argument in the docstring above.
+    except Exception as exc:
+        raise ReplyInvariantError(
+            _unverified(published, parent, f"{type(exc).__name__}: {exc}"), published
+        ) from exc
 
 
-def _confirm(published: str, parent: str, seen: dict) -> None:
-    """The read back, checked against what was asked for."""
+def _confirm(published: str, parent: str, token: str, text: str, seen: dict) -> None:
+    """The read back, checked against what was asked for.
+
+    Three outcomes rather than two, and the difference between them is what the
+    operator is told about the customer's comment:
+
+      - the reply sits under the parent a person approved. Nothing to say.
+      - it sits somewhere else, or nowhere, and the parent is proved intact. That
+        is one misplaced reply, so it costs one row rather than the queue.
+      - it sits somewhere else and the parent is not proved intact. That is a
+        halt, because the only thing worse than stopping is not stopping.
+
+    The downgrade in the middle is not a softening. Facebook flattens threads: a
+    reply to a second level comment comes back parented to the top level comment
+    it hangs under, which is Meta behaving as documented rather than this
+    connector damaging anything, and ending the run over it loses every remaining
+    row for a reason that will recur on the next run too.
+    """
     if seen.get("id") != published:
         raise ReplyInvariantError(
-            _unverified(published, parent, f"reading it back gave id {seen.get('id')!r} instead")
+            _unverified(published, parent, f"reading it back gave id {seen.get('id')!r} instead"),
+            published,
         )
     found = seen.get("parent")
-    under = found.get("id") if isinstance(found, dict) else None
-    if under == parent:
-        return
-    if under is None:
+    if isinstance(found, dict):
+        under = _identifier(found.get("id"))
+        if under and _same_comment(under, parent):
+            return
+        if under:
+            _misplaced(
+                published,
+                parent,
+                token,
+                text,
+                f"it sits under comment {under}, not under comment {parent}, which is the "
+                "one a person approved a reply to",
+            )
+        # A parent field that came back as a dict with no readable id is the
+        # middle state: the reply may well be in the right place and this
+        # connector cannot see that it is. It is not the same fact as having no
+        # parent at all, and it used to be reported as if it were.
         raise ReplyInvariantError(
-            f"the reply was published as {published} and it has no parent, which means it "
-            f"landed on the post as a new top level comment rather than as a reply under "
-            f"comment {parent}. Nothing was overwritten. The reply path in this connector "
-            "is not doing what it says, so the queue is stopped rather than repeating it "
-            "on every remaining row. Find the reply on the Page and move or delete it."
+            _unverified(
+                published,
+                parent,
+                "it came back carrying a parent whose id could not be read",
+            ),
+            published,
         )
-    raise ReplyInvariantError(
-        f"the reply was published as {published} but it sits under comment {under}, not "
-        f"under comment {parent}, which is the one a person approved a reply to. Nothing "
-        "was overwritten. Read both ids: if they are the same comment written two "
-        "different ways then this connector is comparing ids the platform spells "
-        "differently, and if they are not, the reply is under the wrong comment. Either "
-        "way the queue is stopped rather than repeating it on every remaining row."
+    if found is not None:
+        raise ReplyInvariantError(
+            _unverified(
+                published,
+                parent,
+                f"it came back with a parent field that is a {type(found).__name__} "
+                "rather than an object",
+            ),
+            published,
+        )
+    _misplaced(
+        published,
+        parent,
+        token,
+        text,
+        "it has no parent, which means it landed on the post as a new top level comment "
+        f"rather than as a reply under comment {parent}",
+    )
+
+
+def _misplaced(published: str, parent: str, token: str, text: str, what: str) -> NoReturn:
+    """A reply that is not under the approved comment, halting only if it may have eaten it.
+
+    Always raises. The parent is read back first, every time: no branch in this
+    connector gets to tell an operator their customer's comment is intact without
+    having looked at it, which is what both of these branches used to do.
+    """
+    overwritten, evidence = _parent_state(token, parent, text)
+    if overwritten:
+        raise ReplyInvariantError(f"{_overwritten(parent)} Read back: {evidence}.", parent)
+    raise FacebookError(
+        f"the reply was published as {published} and {what}. Read back: {evidence}. This "
+        "row is counted failed and the rest of the queue carries on, because a reply in "
+        "the wrong place is one reply in the wrong place. It is live, so it is written to "
+        "the audit file marked unverified. Find it on the Page and move or delete it.",
+        published,
     )
 
 

@@ -144,6 +144,21 @@ different fix. The connector reads Meta's error subcodes and says which happened
 one to expect is the 90 day rule: a permission your app has not used for 90 days is
 revoked and has to be granted again by hand. This tool is used in bursts by design,
 so a setup that worked last quarter can stop working with nothing changed anywhere.
+One of them is not a token problem at all: subcode 492 means the account behind the
+token lost its role on the Page, and a fresh token will fail in exactly the same way
+until somebody gives that account its role back.
+
+The connector reads the Page's own `published_posts`, not its `feed`. `feed` also
+carries posts visitors made on the Page and posts that merely tag it, and neither is
+yours to answer under. It also holds back comments that are replies to other
+comments: Facebook flattens threads, so a reply written under one of those lands
+under the top level comment instead, which is not the reply anybody approved.
+
+`commentdraft publish` exits 3, rather than 0, 1 or 2, when a write reached the
+platform and could not be proved to have done what it says. The queue stops there,
+and the last line in `out/published.jsonl` is marked `"verified": false` and carries
+the id of what is live, or of what is suspected. Read it and look at the Page before
+running publish again.
 
 Publishing is not settled documentation yet. Read
 `notes/platforms/facebook-connector-report.md` for what a person with real

@@ -31,6 +31,10 @@ TOKEN_ENV = "CD_FB_TOKEN"
 PAGE = "1122334455"
 POST = "1122334455_98765"
 
+# published_posts, not feed. /feed carries posts visitors made on the Page and
+# posts that merely tag it, and neither is the operator's to answer under.
+FEED = f"{PAGE}/{fb.POSTS_EDGE}"
+
 CONFIG = {
     "publish": {
         "platform": "facebook",
@@ -198,18 +202,31 @@ def test_the_edit_failure_is_outside_the_hierarchy_the_gate_catches() -> None:
 def test_a_reply_with_no_parent_landed_on_the_post_and_is_refused(token, connector) -> None:
     """The second failure mode. An absent parent means the comment was created as
     a top level comment on the post, not as a reply under the one a person
-    approved a reply to. It is not destructive and it is still wrong."""
+    approved a reply to. It is not destructive and it is still wrong.
+
+    One row rather than the queue, and only once the parent has been read back and
+    found intact. It costs a row because Facebook flattens threads and this is what
+    that looks like from here, and losing the whole queue to it means losing it
+    again on the next run.
+    """
     graph = Graph()
     graph.answer("POST", f"{POST}_1/comments", {"id": "reply-1"})
     graph.answer("GET", "reply-1", {"id": "reply-1", "message": "x"})
+    graph.answer("GET", f"{POST}_1", {"id": f"{POST}_1", "message": "how much is it"})
 
-    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+    with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.publish_reply(CONFIG, f"{POST}_1", "we cover that in chapter three")
 
     message = str(exc.value)
     assert "reply-1" in message
     assert f"{POST}_1" in message
     assert "parent" in message.lower()
+    # The claim that nothing was overwritten is made only after reading the
+    # comment it is a claim about.
+    assert graph.of("GET", f"{POST}_1"), "the parent was called intact without being read"
+    assert "not overwritten" in message
+    # And the live reply is named on the exception, so the gate can write it down.
+    assert exc.value.published_id == "reply-1"
 
 
 def test_a_reply_landing_under_a_different_comment_is_refused(token, connector) -> None:
@@ -219,12 +236,62 @@ def test_a_reply_landing_under_a_different_comment_is_refused(token, connector) 
     graph = Graph()
     graph.answer("POST", f"{POST}_1/comments", {"id": "reply-1"})
     graph.answer("GET", "reply-1", {"id": "reply-1", "parent": {"id": f"{POST}_9"}})
+    graph.answer("GET", f"{POST}_1", {"id": f"{POST}_1", "message": "how much is it"})
 
-    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+    with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.publish_reply(CONFIG, f"{POST}_1", "we cover that in chapter three")
 
     assert f"{POST}_9" in str(exc.value)
     assert f"{POST}_1" in str(exc.value)
+    assert graph.of("GET", f"{POST}_1"), "the parent was called intact without being read"
+
+
+def test_a_misplaced_reply_whose_parent_now_holds_our_text_still_ends_the_run(
+    token, connector
+) -> None:
+    """The downgrade above is conditional, and this is the condition.
+
+    A reply that landed somewhere unexpected is one row. A reply that landed
+    somewhere unexpected while the comment a person approved is now reading back
+    our own words is an overwrite wearing a different hat, and it ends the run.
+    """
+    graph = Graph()
+    graph.answer("POST", f"{POST}_1/comments", {"id": "reply-1"})
+    graph.answer("GET", "reply-1", {"id": "reply-1", "message": "x"})
+    graph.answer(
+        "GET",
+        f"{POST}_1",
+        {"id": f"{POST}_1", "message": "we cover that in chapter three"},
+    )
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+        connector.publish_reply(CONFIG, f"{POST}_1", "we cover that in chapter three")
+
+    assert "EDITED" in str(exc.value)
+    assert exc.value.published_id == f"{POST}_1"
+
+
+def test_an_edit_answered_with_the_other_spelling_of_the_id_is_still_an_edit(
+    token, connector
+) -> None:
+    """Facebook writes one comment id two ways: 98765 and 1122334455_98765.
+
+    An edit answered with the spelling that was not sent walked past an alarm made
+    of exact string equality, and the operator was then told, in the failure about
+    a comment that no longer exists, that nothing had been overwritten.
+    """
+    graph = Graph()
+    graph.answer("POST", f"{POST}/comments", {"id": "98765"})
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+        connector.publish_reply(CONFIG, POST, "we cover that in chapter three")
+
+    message = str(exc.value)
+    assert "EDITED" in message
+    assert "not overwritten" not in message.lower()
+    assert POST in message
+    # And it stopped before doing anything else at all.
+    assert graph.of("GET", POST) == []
 
 
 def test_the_check_reads_back_the_new_id_with_the_documented_fields(token, connector) -> None:
@@ -268,14 +335,121 @@ def test_a_write_that_cannot_be_checked_stops_the_queue_rather_than_reporting_su
     assert "reply-1" in str(exc.value), "the id of a live reply is not in the failure"
 
 
-def test_a_write_answered_with_no_id_is_a_plain_failure(token, connector) -> None:
-    """Nothing was created that anyone can point at, so this is one row's problem
-    rather than a reason to end the run."""
-    graph = Graph()
-    graph.answer("POST", f"{POST}_1/comments", {"ok": True})
+def test_a_write_answered_with_no_id_is_a_write_that_happened(token, connector) -> None:
+    """The premise this test used to carry was false, and it was the worst one here.
 
-    with wired(graph), pytest.raises(fb.FacebookError):
+    It said "nothing was created that anyone can point at, so this is one row's
+    problem". A 2xx POST is a write that happened. {"success": true} is exactly
+    how Graph answers an update, which is the failure this whole connector exists
+    to catch, and reading it as a per-row failure meant the queue wrote again and
+    again while the summary printed sent 0.
+
+    So an answer with no usable id sends this connector to read the parent back,
+    and it ends the run whatever it finds there: either our text is standing in
+    the customer's comment, or nobody can say what the write did.
+    """
+    graph = Graph()
+    graph.answer("POST", f"{POST}_1/comments", {"success": True})
+    graph.answer("GET", f"{POST}_1", {"id": f"{POST}_1", "message": "how much is it"})
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
         connector.publish_reply(CONFIG, f"{POST}_1", "hello")
+
+    message = str(exc.value)
+    assert f"{POST}_1" in message
+    assert "no id" in message
+    assert graph.of("GET", f"{POST}_1"), "the parent was not read back"
+    assert exc.value.published_id == f"{POST}_1"
+
+
+def test_a_write_with_no_id_whose_parent_holds_our_text_is_named_as_the_edit(
+    token, connector
+) -> None:
+    """The other half, and the one the whole safety requirement is about.
+
+    {"success": true} plus a parent comment that now reads back as the text just
+    sent is an edit. It has to be said in the words an edit gets, not in the
+    hedged ones, because the customer's words are gone.
+    """
+    graph = Graph()
+    graph.answer("POST", f"{POST}_1/comments", {"success": True})
+    graph.answer("GET", f"{POST}_1", {"id": f"{POST}_1", "message": "eighteen dollars"})
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+        connector.publish_reply(CONFIG, f"{POST}_1", "eighteen dollars")
+
+    message = str(exc.value)
+    assert "EDITED" in message
+    assert "now holds the text that was just sent" in message
+
+
+def test_a_write_with_no_id_and_an_unreadable_parent_is_not_called_safe(token, connector) -> None:
+    """The parent read can fail too, and a failed read is not a clean bill."""
+    graph = Graph()
+    graph.answer("POST", f"{POST}_1/comments", {"success": True})
+    graph.answer("GET", f"{POST}_1", {"error": {"code": 190, "error_subcode": 460}}, status=400)
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+        connector.publish_reply(CONFIG, f"{POST}_1", "hello")
+
+    message = str(exc.value)
+    assert "could not be read back" in message
+    assert "not overwritten" not in message.lower()
+
+
+def test_a_numeric_id_is_read_as_the_id_it_is_rather_than_refused(token, connector) -> None:
+    """JSON is allowed to spell 98765 as a number, and an id is an id.
+
+    Refusing it threw away the one value that could locate a live write, and then
+    reported the write as a failed row. Now it is read, and the read back that
+    follows is the ordinary one.
+    """
+    graph = Graph()
+    graph.answer("POST", f"{POST}_1/comments", {"id": 4242})
+    graph.answer("GET", "4242", {"id": "4242", "parent": {"id": f"{POST}_1"}, "message": "x"})
+
+    with wired(graph):
+        assigned = connector.publish_reply(CONFIG, f"{POST}_1", "hello")
+
+    assert assigned == "4242"
+
+
+def test_a_boolean_is_not_an_id(token, connector) -> None:
+    """True is an int in Python, and "the id is True" is not an id."""
+    graph = Graph()
+    graph.answer("POST", f"{POST}_1/comments", {"id": True})
+    graph.answer("GET", f"{POST}_1", {"id": f"{POST}_1", "message": "how much is it"})
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError):
+        connector.publish_reply(CONFIG, f"{POST}_1", "hello")
+
+
+def test_a_dropped_connection_on_the_read_back_stops_the_queue(token, connector) -> None:
+    """The reply is live and the check never ran, which is a halt, not a row.
+
+    RemoteDisconnected is what a server closing a keep alive connection produces
+    and it is neither a FacebookError nor a URLError, so it escaped as an ordinary
+    Exception: the gate counted one failed row, said "not sent" about a reply that
+    had been sent, and offered the next one.
+    """
+    from http.client import RemoteDisconnected
+
+    class Dropping(Graph):
+        def __call__(self, method: str, url: str, body: dict | None):
+            if method == "GET":
+                raise RemoteDisconnected("remote end closed connection without response")
+            return super().__call__(method, url, body)
+
+    graph = Dropping()
+    graph.answer("POST", f"{POST}_1/comments", {"id": "reply-1"})
+
+    with wired(graph), pytest.raises(fb.ReplyInvariantError) as exc:
+        connector.publish_reply(CONFIG, f"{POST}_1", "hello")
+
+    message = str(exc.value)
+    assert "reply-1" in message, "the id of a live reply is not in the failure"
+    assert "RemoteDisconnected" in message
+    assert exc.value.published_id == "reply-1"
 
 
 @pytest.mark.parametrize(("parent", "text"), [("", "hello"), ("   ", "hello"), ("c1", "   ")])
@@ -295,7 +469,7 @@ def test_an_empty_parent_or_an_empty_reply_reaches_no_network_at_all(
 
 def test_every_row_is_exactly_the_shape_the_engine_reads(token, connector) -> None:
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST, "message": "a clip about foraging"}))
+    graph.answer("GET", FEED, feed({"id": POST, "message": "a clip about foraging"}))
     graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
 
     with wired(graph):
@@ -317,7 +491,7 @@ def test_a_comment_with_no_author_still_comes_through(token, connector) -> None:
     the engine on purpose: an absent name means the prompt omits that clause
     rather than inventing a placeholder for a stranger."""
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST, "message": "a clip"}))
+    graph.answer("GET", FEED, feed({"id": POST, "message": "a clip"}))
     without = comment(f"{POST}_1")
     del without["from"]
     graph.answer(
@@ -335,7 +509,7 @@ def test_a_comment_with_no_author_still_comes_through(token, connector) -> None:
 
 def test_a_post_with_no_message_is_titled_with_its_id(token, connector) -> None:
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST}))
+    graph.answer("GET", FEED, feed({"id": POST}))
     graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
 
     with wired(graph):
@@ -350,10 +524,10 @@ def test_both_edges_are_followed_to_the_end_of_their_paging(token, connector) ->
     graph = Graph()
     graph.answer(
         "GET",
-        f"{PAGE}/feed",
-        feed({"id": POST, "message": "one"}, paging=_next(f"{PAGE}/feed", "p2")),
+        FEED,
+        feed({"id": POST, "message": "one"}, paging=_next(FEED, "p2")),
     )
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": "post-2", "message": "two"}))
+    graph.answer("GET", FEED, feed({"id": "post-2", "message": "two"}))
     graph.answer(
         "GET",
         f"{POST}/comments",
@@ -367,7 +541,7 @@ def test_both_edges_are_followed_to_the_end_of_their_paging(token, connector) ->
 
     assert [row["id"] for row in rows] == [f"{POST}_1", f"{POST}_2", "post-2_1"]
     assert [row["post_title"] for row in rows] == ["one", "one", "two"]
-    assert len(graph.of("GET", f"{PAGE}/feed")) == 2
+    assert len(graph.of("GET", FEED)) == 2
     assert len(graph.of("GET", f"{POST}/comments")) == 2
 
 
@@ -381,7 +555,7 @@ def test_a_paging_cursor_that_points_off_the_graph_host_is_refused(token, connec
     graph = Graph()
     graph.answer(
         "GET",
-        f"{PAGE}/feed",
+        FEED,
         feed({"id": POST}, paging={"next": "https://example.invalid/v26.0/steal"}),
     )
     graph.answer("GET", f"{POST}/comments", feed())
@@ -395,7 +569,7 @@ def test_a_paging_cursor_that_points_off_the_graph_host_is_refused(token, connec
 def test_a_cursor_that_never_advances_is_stopped_and_named(token, connector, monkeypatch) -> None:
     monkeypatch.setattr(fb, "MAX_PAGES", 3)
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST}, paging=_next(f"{PAGE}/feed", "stuck")))
+    graph.answer("GET", FEED, feed({"id": POST}, paging=_next(FEED, "stuck")))
     graph.answer("GET", f"{POST}/comments", feed())
 
     with wired(graph), pytest.raises(fb.FacebookError) as exc:
@@ -404,9 +578,111 @@ def test_a_cursor_that_never_advances_is_stopped_and_named(token, connector, mon
     assert "3" in str(exc.value)
 
 
+def test_a_walk_that_finished_on_the_cap_is_not_a_stuck_cursor(
+    token, connector, monkeypatch
+) -> None:
+    """The cap is a loop detector, and there is no loop when the platform has just
+    said there is nothing after this page.
+
+    Two pages, a cap of two, and the second page carrying no next link. That is a
+    complete read of a small Page, and checking the cap before reading the next
+    link turned it into a refusal with every row already collected thrown away.
+    """
+    monkeypatch.setattr(fb, "MAX_PAGES", 2)
+    graph = Graph()
+    graph.answer("GET", FEED, feed({"id": POST, "message": "one"}, paging=_next(FEED, "p2")))
+    graph.answer("GET", FEED, feed({"id": "post-2", "message": "two"}))
+    graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
+    graph.answer("GET", "post-2/comments", feed(comment("post-2_1")))
+
+    with wired(graph):
+        rows = connector.fetch_comments(CONFIG, None)
+
+    assert [row["id"] for row in rows] == [f"{POST}_1", "post-2_1"]
+
+
+def test_the_posts_edge_is_the_pages_own_posts_and_not_its_feed(token, connector) -> None:
+    """/feed carries posts visitors made on the Page and posts that merely tag it.
+
+    Replying to those from the Page's account is not what an operator asked for,
+    and the comments under them are not the operator's to answer.
+    """
+    graph = Graph()
+    graph.answer("GET", FEED, feed({"id": POST}))
+    graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
+
+    with wired(graph):
+        connector.fetch_comments(CONFIG, None)
+
+    assert fb.POSTS_EDGE == "published_posts"
+    assert [call.path for call in graph.calls if call.path.startswith(f"{PAGE}/")] == [FEED]
+    assert graph.of("GET", f"{PAGE}/feed") == []
+
+
+def test_a_reply_to_a_reply_is_not_queued(token, connector) -> None:
+    """filter=stream asks for replies-to-replies by design, and this connector
+    cannot correctly reply to one.
+
+    Facebook flattens threads: a reply written under a second level comment comes
+    back parented to the top level comment it hangs under, so the write check reads
+    it as a reply in the wrong place. Offering a person a keystroke that cannot
+    work is worse than not offering it, and before the fix it ended the whole run
+    on the row that used it.
+    """
+    graph = Graph()
+    graph.answer("GET", FEED, feed({"id": POST}))
+    graph.answer(
+        "GET",
+        f"{POST}/comments",
+        feed(
+            comment(f"{POST}_1"),
+            comment(f"{POST}_2", parent={"id": f"{POST}_1"}),
+        ),
+    )
+
+    with wired(graph):
+        rows = connector.fetch_comments(CONFIG, None)
+
+    assert [row["id"] for row in rows] == [f"{POST}_1"]
+
+
+def test_a_parent_field_nobody_can_read_is_still_a_parent(token, connector) -> None:
+    """An unreadable parent is not evidence of there being none."""
+    graph = Graph()
+    graph.answer("GET", FEED, feed({"id": POST}))
+    graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_2", parent="something else")))
+
+    with wired(graph):
+        rows = connector.fetch_comments(CONFIG, None)
+
+    assert rows == []
+
+
+def test_one_unreadable_post_does_not_discard_the_posts_around_it(token, connector) -> None:
+    """Expired posts are documented as inaccessible, so this is a normal Tuesday.
+
+    The walk used to raise out of fetch_comments on the first one, throwing away
+    every row already collected from every post before it, which reads to an
+    operator as a Page with no comments rather than as one post they cannot see.
+    """
+    graph = Graph()
+    graph.answer(
+        "GET",
+        FEED,
+        feed({"id": POST, "message": "one"}, {"id": "gone", "message": "two"}),
+    )
+    graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
+    graph.answer("GET", "gone/comments", {"error": {"code": 100, "message": "no such post"}}, 400)
+
+    with wired(graph), pytest.warns(UserWarning, match="gone"):
+        rows = connector.fetch_comments(CONFIG, None)
+
+    assert [row["id"] for row in rows] == [f"{POST}_1"]
+
+
 def test_since_keeps_the_comments_made_after_it(token, connector) -> None:
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST, "message": "a clip"}))
+    graph.answer("GET", FEED, feed({"id": POST, "message": "a clip"}))
     graph.answer(
         "GET",
         f"{POST}/comments",
@@ -430,7 +706,7 @@ def test_since_is_not_handed_to_the_platform_as_a_filter(token, connector) -> No
     been run against the live API. A server side filter measuring something other
     than creation time drops rows with no error, so the filtering is done here."""
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST}))
+    graph.answer("GET", FEED, feed({"id": POST}))
     graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
 
     with wired(graph):
@@ -442,7 +718,7 @@ def test_since_is_not_handed_to_the_platform_as_a_filter(token, connector) -> No
 
 def test_a_comment_with_an_unreadable_timestamp_is_kept(token, connector) -> None:
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST}))
+    graph.answer("GET", FEED, feed({"id": POST}))
     graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1", created_time="whenever")))
 
     with wired(graph):
@@ -461,12 +737,20 @@ def test_a_since_marker_nobody_can_read_is_refused_rather_than_ignored(token, co
     assert graph.calls == []
 
 
-def test_the_read_corrects_both_defaults_that_hide_comments(token, connector) -> None:
-    """toplevel drops replies to replies, and filter_low_quality hides comments
-    from the API that a human moderator can see on the Page. Both are Meta's
-    defaults and both make this tool look like it is ignoring people."""
+def test_the_read_corrects_the_default_that_hides_half_a_thread(token, connector) -> None:
+    """filter=stream is the whole correction. Meta's default, toplevel, drops
+    replies to replies, and a tool that reads with it looks like it is ignoring
+    half a thread it then replies into.
+
+    live_filter is sent too and is asked for rather than relied on. This test used
+    to claim it un-hides comments a human moderator can see, which is a benefit
+    Meta denies in the same reference: "For comments on a Live streaming video ...
+    In all other circumstances this parameter is ignored." On an ordinary post it
+    changes nothing, and a test asserting a benefit is a test that will be cited
+    as evidence the benefit exists.
+    """
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", feed({"id": POST}))
+    graph.answer("GET", FEED, feed({"id": POST}))
     graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
 
     with wired(graph):
@@ -492,7 +776,20 @@ NAMED = [
     (190, None, ["not usable any more"]),
     (10, None, ["90 day", "granted again"]),
     (1705, None, ["as a person rather than as the page"]),
-    (32, None, ["rate limit"]),
+    (32, None, ["rate limit", "engaged with the page"]),
+    # The Page role death. FACEBOOK-BUILD.md names it in prose and the table had
+    # no entry for it, so it fell through to the 190 fallback, which tells the
+    # operator to exchange a token that will die in exactly the same way.
+    (190, 492, ["appropriate role on the page", "moderate"]),
+    # The subcodes are keyed on the subcode, so the same reading is reached
+    # whatever code carried it. Meta prints these under 102 as well.
+    (102, 460, ["password", "log in again"]),
+    (200, None, ["permission"]),
+    # Meta publishes 200-299 as one band and no table of the codes in it.
+    (287, None, ["permission"]),
+    (368, None, ["abusive", "wait"]),
+    (100, None, ["parameter", "page_id"]),
+    (80001, None, ["limit", "wait"]),
 ]
 
 
@@ -507,7 +804,7 @@ def test_each_graph_error_is_read_back_as_the_thing_the_operator_has_to_do(
     if subcode is not None:
         error["error_subcode"] = subcode
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", {"error": error}, status=400)
+    graph.answer("GET", FEED, {"error": error}, status=400)
 
     with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.fetch_comments(CONFIG, None)
@@ -526,7 +823,7 @@ def test_the_ninety_day_rule_is_named_rather_than_left_as_a_permission_error(
     and it arrives as a bare permission error. If this connector does not name
     it, the operator goes looking for a token they already have."""
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", {"error": {"code": 10, "message": "no"}}, status=403)
+    graph.answer("GET", FEED, {"error": {"code": 10, "message": "no"}}, status=403)
 
     with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.fetch_comments(CONFIG, None)
@@ -536,9 +833,55 @@ def test_the_ninety_day_rule_is_named_rather_than_left_as_a_permission_error(
     assert "bursts" in message, "the reason this tool in particular hits it is not stated"
 
 
+def test_a_subcode_with_no_code_at_all_still_reaches_its_reading(token, connector) -> None:
+    """A bare OAuthException carrying a subcode and no readable code.
+
+    The table used to be keyed only on the pair, so a token that had died in one
+    of the six ways Meta names precisely was reported as a code nobody had a
+    reading for, which is the least useful sentence available.
+    """
+    graph = Graph()
+    graph.answer(
+        "GET",
+        FEED,
+        {"error": {"type": "OAuthException", "error_subcode": 460, "message": "no"}},
+        status=400,
+    )
+
+    with wired(graph), pytest.raises(fb.FacebookError) as exc:
+        connector.fetch_comments(CONFIG, None)
+
+    message = str(exc.value)
+    assert "password" in message
+    assert "OAuthException" in message
+
+
+def test_the_page_role_death_is_not_read_as_a_token_to_exchange(token, connector) -> None:
+    """Subcode 492 is the one 190 whose fix is not "get a new token".
+
+    A Page token is tied to one person's role on one Page, so exchanging a fresh
+    one produces a token that fails at exactly the same call. The fallback used to
+    send the operator round that loop.
+    """
+    graph = Graph()
+    graph.answer(
+        "GET",
+        FEED,
+        {"error": {"code": 190, "error_subcode": 492, "message": "no role"}},
+        status=400,
+    )
+
+    with wired(graph), pytest.raises(fb.FacebookError) as exc:
+        connector.fetch_comments(CONFIG, None)
+
+    message = str(exc.value)
+    assert "role on the Page" in message
+    assert "exchanging a new one" in message
+
+
 def test_a_code_nobody_mapped_says_so_instead_of_guessing(token, connector) -> None:
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", {"error": {"code": 8675309, "message": "new"}}, status=400)
+    graph.answer("GET", FEED, {"error": {"code": 8675309, "message": "new"}}, status=400)
 
     with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.fetch_comments(CONFIG, None)
@@ -549,7 +892,7 @@ def test_a_code_nobody_mapped_says_so_instead_of_guessing(token, connector) -> N
 
 def test_a_body_that_is_not_json_is_reported_without_the_token_in_it(token, connector) -> None:
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", "<html>502 Bad Gateway</html>", status=502)
+    graph.answer("GET", FEED, "<html>502 Bad Gateway</html>", status=502)
 
     with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.fetch_comments(CONFIG, None)
@@ -561,7 +904,7 @@ def test_a_body_that_is_not_json_is_reported_without_the_token_in_it(token, conn
 def test_no_failure_message_carries_the_page_token(token, connector) -> None:
     """Every one of these prints a URL, and the URL is where the credential is."""
     graph = Graph()
-    graph.answer("GET", f"{PAGE}/feed", {"data": "not a list"})
+    graph.answer("GET", FEED, {"data": "not a list"})
 
     with wired(graph), pytest.raises(fb.FacebookError) as exc:
         connector.fetch_comments(CONFIG, None)
@@ -624,6 +967,23 @@ def test_the_transport_seam_is_ignored_when_no_test_runner_is_present(monkeypatc
         assert fb._transport() is graph
         monkeypatch.delitem(sys.modules, fb._TEST_RUNNER)
         assert fb._transport() is fb._request
+
+
+def test_the_suite_cannot_reach_the_network_by_forgetting_to_install_a_fake() -> None:
+    """Offline as a property, not as a convention everybody remembered.
+
+    With a test runner in the process and no fake installed, this used to fall
+    through to the real transport, so the claim that the whole suite runs with no
+    network and no key held only because every test happened to use wired(). One
+    test written without it and the suite calls Graph from somebody's laptop with
+    whatever token is in that environment.
+    """
+    assert fb._scripted_transport is None, "a fake leaked out of another test"
+    with pytest.raises(fb.FacebookError) as exc:
+        fb._transport()
+    message = str(exc.value)
+    assert "wired()" in message, "the failure does not name what is missing"
+    assert fb._TEST_RUNNER in message
 
 
 def test_a_scripted_transport_cannot_make_a_send_happen(tmp_path, monkeypatch) -> None:
@@ -722,6 +1082,13 @@ def test_an_edited_comment_ends_the_run_instead_of_moving_to_the_next_row(
 
     assert graph.of("POST", "c2/comments") == [], "the queue carried on after an edit"
     assert next(pressed) == "y", "the second row was offered"
-    # And nothing claims to have been published, because nothing was: the write
-    # that happened was an edit and there is no id for a reply that never existed.
-    assert not log.exists()
+    # And there is a record of it. This used to assert the opposite, on the
+    # reasoning that an edit created no reply so there was no id to write down.
+    # The id of the comment that was damaged is exactly what an operator needs,
+    # and a run that ends with nothing on disk is a run they cannot reconstruct.
+    (line,) = log.read_text(encoding="utf-8").splitlines()
+    entry = json.loads(line)
+    assert entry["verified"] is False
+    assert entry["published_id"] == "c1"
+    assert entry["parent_id"] == "c1"
+    assert entry["text"] == "eighteen dollars"
