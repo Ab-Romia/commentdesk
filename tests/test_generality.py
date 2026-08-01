@@ -1,12 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 """The acceptance gate.
 
-Three tests carry every generality claim the README is allowed to make. Test one
-proves no English is welded into the engine. Test two proves the pipeline runs over
-three unrelated products offline. Test three proves the package cannot post.
+Two tests carry every generality claim the README is allowed to make. Test one
+proves no English is welded into the engine. Test two proves the pipeline runs
+over three unrelated products offline.
+
+There used to be a third, test_the_package_contains_no_client_for_any_platform,
+which walked the AST of every module and failed on a platform import name or a
+platform hostname string. It proved the package could not post by proving it had
+no way to reach anyone. Connectors are being added, so that proof is no longer
+available, and the claim it was really carrying was never about HTTP clients: it
+was that nothing reaches a platform a person did not read and approve first. That
+claim survives connectors, so it is now enforced directly, by the approval gate
+tests in tests/test_guarantees.py. The import ban itself did not disappear either;
+it moved to test_no_module_outside_the_connectors_can_reach_a_platform, which
+confines every network client to src/commentdraft/platforms/ and leaves the
+engine, the gate, the CLI and the review page with no route to anyone's API.
 """
 
-import ast
 import json
 from pathlib import Path
 
@@ -19,7 +30,6 @@ from commentdraft.sanitize import find_repetition, is_plug, sanitize_reply
 from commentdraft.sources import load_knowledge
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src" / "commentdraft"
 OTHER_LANGUAGE = ROOT / "tests" / "fixtures" / "nazzef-kit-ar"
 
 PRODUCTS = {
@@ -155,69 +165,3 @@ def test_the_whole_pipeline_runs_offline_for_every_product(name):
         json.dumps(call["messages"][0], ensure_ascii=False, sort_keys=True) for call in client.calls
     }
     assert len(prefixes) == 1, "the system prefix changed between rows"
-
-
-BANNED_IMPORTS = {
-    "requests",
-    "httpx",
-    "aiohttp",
-    "urllib3",
-    "urllib.request",
-    "http.client",
-    "googleapiclient",
-    "google_auth_oauthlib",
-    "google.oauth2",
-    "google.auth",
-    "tweepy",
-    "facebook",
-    "facebook_sdk",
-    "instagrapi",
-    "TikTokApi",
-    "atproto",
-    "praw",
-}
-
-BANNED_HOSTS = (
-    "youtube.googleapis.com",
-    "www.googleapis.com",
-    "oauth2.googleapis.com",
-    "accounts.google.com",
-    "graph.facebook.com",
-    "graph.instagram.com",
-    "api.instagram.com",
-    "open.tiktokapis.com",
-    "open-api.tiktok.com",
-    "api.tiktok.com",
-    "api.twitter.com",
-    "api.x.com",
-)
-
-
-def _module_trees():
-    modules = sorted(SRC.rglob("*.py"))
-    assert len(modules) >= 8, f"only found {len(modules)} modules under {SRC}"
-    for path in modules:
-        yield path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-
-
-def test_the_package_contains_no_client_for_any_platform():
-    """The never-posts promise is a property of the code, not of a policy document.
-
-    ui.py legitimately serves on localhost, so http.server and socketserver are fine.
-    What may not exist anywhere is a way to reach a platform's API.
-    """
-    for path, tree in _module_trees():
-        for node in ast.walk(tree):
-            names = []
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module]
-            for name in names:
-                assert name not in BANNED_IMPORTS, f"{path.name} imports {name}"
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                lowered = node.value.lower()
-                for host in BANNED_HOSTS:
-                    assert host not in lowered, f"{path.name} names {host}"

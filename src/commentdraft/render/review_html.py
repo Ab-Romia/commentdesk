@@ -55,7 +55,10 @@ DEFAULT_CURRENCY_NOTE = (
     "decay, and the result would look more precise than either input."
 )
 
-NEVER_POSTED_NOTE = "Nothing on this page has been posted anywhere. This tool has no way to post."
+NEVER_POSTED_NOTE = (
+    "Nothing on this page has been posted anywhere. Publishing is a separate step "
+    "that asks you to approve each reply on its own, one at a time."
+)
 
 STYLE = """
 :root { color-scheme: light; }

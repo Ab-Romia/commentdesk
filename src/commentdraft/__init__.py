@@ -3,7 +3,8 @@
 
 Reads comments from a CSV, spends one model call per comment to get a decision
 (reply, skip, escalate) plus a drafted reply, and writes the results out as a CSV
-and a review page. It never posts anything anywhere.
+and a review page. Nothing is published that a person has not approved, one reply
+at a time, through the gate in commentdraft.approve.
 
 Everything an operator touches is configuration, knowledge, or voice. This package
 holds none of the three: no product, no language, no copy.

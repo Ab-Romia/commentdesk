@@ -41,12 +41,14 @@ public endpoint.
    machine-checked form of "the engine holds no human-language copy": if you need
    words for a person to read, they belong in an operator's own config or voice file,
    never in a `.py` file.
-2. **No posting path.** No HTTP client for any social platform, no credential
-   handling, no OAuth flow, anywhere in the package. The claim that this tool cannot
-   publish is checkable with a `grep` in seconds, and several other honest claims in
-   `README.md` and `docs/platform-policy.md` depend on that claim staying true. A pull
-   request that adds a path toward posting will be declined regardless of what it is
-   for.
+2. **No posting path that is not gated.** Everything that can reach a platform goes
+   through `src/commentdraft/approve.py`, one reply and one keystroke at a time.
+   There is no `--yes`, no `--all` and no config key that changes that, and adding
+   one fails a test in `tests/test_guarantees.py` rather than merely being frowned
+   at. Network clients belong under `src/commentdraft/platforms/` and nowhere else.
+   Several honest claims in `README.md` and `docs/platform-policy.md` depend on all
+   of that staying true. A pull request that adds an unattended route to a platform
+   will be declined regardless of what it is for.
 3. **`data_collection` stays denied.** Every model entry, in every example config and
    every test fixture, sends `params.provider.data_collection = "deny"` nested inside
    `provider`. Do not move it to the top level of `params`, where a gateway commonly

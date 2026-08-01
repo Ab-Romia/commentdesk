@@ -92,4 +92,5 @@ skip = "./.git,./out,./.venv,./uv.lock,./docs/img,./notes,*.csv"
 #   list, not a word on its own.
 # caf: half of "cafe", built with chr() in a test so that file stays ascii itself.
 # responde: Spanish, in a worked example that demonstrates a non-English reply.
-ignore-words-list = "nd,ba,unparseable,summar,integrat,caf,responde"
+# notin: ast.NotIn, the node class for `x not in y`, named in a guarantee test.
+ignore-words-list = "nd,ba,unparseable,summar,integrat,caf,responde,notin"

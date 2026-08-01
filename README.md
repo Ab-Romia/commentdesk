@@ -7,10 +7,11 @@ Triage social-media comments from a CSV and draft grounded replies for a person 
 [![Python][python-badge]][python-link]
 [![License][license-badge]][license-link]
 
-> **The one thing to know before anything else.** commentdraft never publishes.
-> It reads a CSV, writes a page of drafts, and exits. Sending a reply is a person's
-> job, done by hand, after reading it. There is no code path that posts, and you can
-> check that with grep in about four seconds.
+> **The one thing to know before anything else.** Nothing is published that a person
+> has not approved, one reply at a time. Approval is not a setting, a default, or a
+> dialog you can hold Enter through: it is a keystroke against one specific reply,
+> taken immediately before that one reply is sent. There is no `--yes`, no `--all`,
+> and no config key that changes it. Not defaulted off. Absent.
 
 ## What it is
 
@@ -64,7 +65,7 @@ commentdraft review out/review.csv --out out
 escalates, what the run cost, and which drafts repeat each other. `review` turns the
 CSV into `out/review.html`, which is the page below.
 
-![The review page, headed "Reply review". A tally line reads "11 comments: escalate=4, reply=4, skip=3" above "total cost: $0.0006". Then one table with columns for number, platform, author, context, comment, decision, reason, reply, model and error. Rows tinted green were answered: a question about mushrooms answered from the source and pointed at the book, a price and place question answered with both, a direct question about whether a person or software writes the replies, answered with the configured disclosure sentence, and a Polish question about regional coverage answered in Polish. Rows tinted pink were escalated to a person and carry no draft: a shipping question, an unhappy buyer, a piracy report, and an allergy question. Untinted rows were skipped: a discount request, an accusation, and a request to convert the price into euros. A footer reads "Nothing on this page has been posted anywhere. This tool has no way to post."](docs/img/review-page.png)
+![The review page, headed "Reply review". A tally line reads "11 comments: escalate=4, reply=4, skip=3" above "total cost: $0.0006". Then one table with columns for number, platform, author, context, comment, decision, reason, reply, model and error. Rows tinted green were answered: a question about mushrooms answered from the source and pointed at the book, a price and place question answered with both, a direct question about whether a person or software writes the replies, answered with the configured disclosure sentence, and a Polish question about regional coverage answered in Polish. Rows tinted pink were escalated to a person and carry no draft: a shipping question, an unhappy buyer, a piracy report, and an allergy question. Untinted rows were skipped: a discount request, an accusation, and a request to convert the price into euros. A footer reads "Nothing on this page has been posted anywhere. Publishing is a separate step that asks you to approve each reply on its own, one at a time."](docs/img/review-page.png)
 
 One table, one row per comment, carrying the decision, the reason, the draft reply and
 the model that wrote it, plus one cost total for the whole file rather than a column of
@@ -146,18 +147,29 @@ this tool talks to.
 
 ## What it deliberately does not do
 
-- **It does not post, queue, schedule, or hold a credential for any platform.** There
-  is no client for one in the package:
+- **It does not queue, schedule, or send anything on its own.** No connector for any
+  platform ships today. The code that will send one exists, in exactly one module,
+  and reaching it costs one keystroke per reply:
 
   ```bash
-  grep -rniE 'youtube|tiktok|instagram|facebook|googleapis|oauth' src/
+  grep -rn --include='*.py' --exclude=approve.py --exclude-dir=platforms 'publish_reply' src/
   ```
 
-  returns nothing, and `tests/test_generality.py::test_the_package_contains_no_client_for_any_platform` runs an
-  equivalent check on every push: that one walks the AST for exact import names and
-  exact hostnames in string constants, where the grep above is a case-insensitive
-  substring sweep over every byte of `src/`, comments included. Both pass. Neither
-  is the other.
+  returns nothing. Everything that can put a reply on a platform is inside
+  `src/commentdraft/approve.py`, and the only other mention of it anywhere is the
+  interface declaration a connector implements.
+  `tests/test_guarantees.py::test_the_only_call_to_publish_reply_in_the_package_is_inside_the_gate`
+  runs the version of that check a grep cannot: it walks the AST of every module,
+  finds every call, and fails the build if there is more than one or if the one is
+  somewhere else. The tests beside it assert that the call sits inside a branch an
+  explicit keystroke reaches, that the function cannot be handed out as a value and
+  called elsewhere, that the prompt has no default action, and that no config key
+  and no CLI flag shaped like an approval bypass exists anywhere in the package.
+
+  This replaces an older claim that no HTTP client existed anywhere. That was true,
+  checkable, and about to stop being either. It was doing two jobs, and only one of
+  them mattered: nothing reaches a platform that a person did not read and approve
+  first. That one survives connectors intact, so it is the one that is enforced.
 - **It does not retrieve.** The whole knowledge document goes into the cached prompt
   prefix. That is the right answer while the document fits the context window and the
   wrong one afterwards. `docs/architecture.md` says where the line is.

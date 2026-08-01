@@ -66,12 +66,19 @@ def test_readme_never_says_plug_cap_limits_anything(text):
 
 
 def test_readme_states_the_grep_checkable_guarantee(text):
-    """The README dares the reader to grep for a platform client. Quoting the word
-    "grep" is not evidence; running the exact command the prose shows is. The
-    pattern is extracted from the README itself, not copied here by hand, so a
-    pattern loosened in a future edit fails this test instead of sliding through.
+    """The README dares the reader to grep for a send outside the approval gate.
+    Quoting the word "grep" is not evidence; running the exact command the prose
+    shows is. The pattern is extracted from the README itself, not copied here by
+    hand, so a pattern loosened in a future edit fails this test instead of
+    sliding through.
+
+    The dare used to be "no HTTP client exists anywhere". Connectors made that
+    claim unkeepable and it was replaced rather than deleted: the load bearing
+    half of it, that nothing reaches a platform a person did not approve, is what
+    the README now promises and what tests/test_guarantees.py enforces.
     """
-    assert "There is no code path that posts" in text
+    assert "Nothing is published that a person" in text
+    assert "no `--yes`, no `--all`" in text
     # The grep lives inside a bullet, so its fenced block is indented.
     match = re.search(r"```bash\n[ \t]*(grep[^\n]+)\n", text)
     assert match, "no grep command found in the README"
