@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import json
+from typing import ClassVar
 
 import pytest
 
@@ -100,7 +101,7 @@ params = { reasoning = { enabled = false } }
 
 def build_product(tmp_path, extra=""):
     """Write a complete, valid product directory and return the config path."""
-    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts").mkdir(parents=True)
     (tmp_path / "prompts" / "voice.md").write_text(VOICE, encoding="utf-8")
     (tmp_path / "prompts" / "examples.md").write_text(EXAMPLES, encoding="utf-8")
     (tmp_path / "knowledge.md").write_text(KNOWLEDGE, encoding="utf-8")
@@ -127,6 +128,7 @@ def test_every_subcommand_offers_only_the_flags_it_reads():
         "run": {"--config", "--out"},
         "bakeoff": {"--config", "--out"},
         "review": {"--out"},
+        "publish": {"--config", "--out"},
         "chat": {"--config", "--out"},
         "ui": {"--config"},
         "ingest": {"--config", "--out"},
@@ -474,3 +476,193 @@ def test_format_trace_prints_na_when_the_model_carries_no_pricing():
     assert "cost      n/a" in out
     assert "cached 900, 90%" in out
     assert out.isascii()
+
+
+# --- publish ----------------------------------------------------------------
+#
+# The subcommand only ever reaches commentdraft.approve, whose own suite drives
+# the keystrokes. What is checked here is the startup order: every reason to
+# refuse has to be found before a row is read, and none of them may arrive as a
+# traceback.
+
+PUBLISH_CONFIG = """
+[publish]
+platform = "fixture-platform"
+credential_env = "CD_PUBLISH_TOKEN"
+"""
+
+REVIEW_CSV = (
+    "id,platform,author,comment,post_title,decision,reason,reply,model,"
+    "prompt_tokens,cached_tokens,cache_write_tokens,completion_tokens,cost_usd,error\n"
+    "1,fixture-platform,sam,how much is it,clip,reply,asks the price,"
+    "eighteen dollars,test/model-small,1000,0,900,20,0.000400,\n"
+    "2,fixture-platform,jo,first,clip,skip,no question,,test/model-small,1000,0,0,20,0.000400,\n"
+)
+
+
+class FixturePlatform:
+    """A connector that records calls and reaches nothing.
+
+    The record is on the class rather than the instance because get_platform
+    builds the instance itself, so a test never holds the object the CLI used.
+    """
+
+    calls: ClassVar[list[tuple]] = []
+
+    def fetch_comments(self, config, since):
+        return []
+
+    def publish_reply(self, config, parent_id, text):
+        FixturePlatform.calls.append((parent_id, text))
+        return "published-" + parent_id
+
+
+@pytest.fixture
+def registered_platform(monkeypatch):
+    """Register the fake connector for the length of one test."""
+    from commentdraft.platforms import PLATFORMS
+
+    FixturePlatform.calls = []
+    monkeypatch.setitem(PLATFORMS, "fixture-platform", FixturePlatform)
+    return FixturePlatform
+
+
+@pytest.fixture
+def at_a_keyboard(monkeypatch):
+    """Say that a person is at the terminal, which pytest's stdin is not."""
+    from commentdraft import cli
+
+    monkeypatch.setattr(cli, "_at_a_keyboard", lambda: True)
+
+
+def build_publishable(tmp_path, extra=PUBLISH_CONFIG):
+    config = build_product(tmp_path, extra=extra)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "review.csv").write_text(REVIEW_CSV, encoding="utf-8")
+    return config, out
+
+
+def test_publish_refuses_a_config_with_no_publish_table_before_reading_a_row(
+    tmp_path, capsys, monkeypatch
+):
+    """A config that cannot publish is the recommended starting point, so this is
+    the message most people who type this subcommand will ever see."""
+    clear_keys(monkeypatch)
+    config, out = build_publishable(tmp_path, extra="")
+    rc = main(["publish", "--config", str(config), "--out", str(out)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "publish" in err
+    assert "Traceback" not in err
+
+
+def test_publish_names_an_unregistered_platform_and_lists_what_is_registered(
+    tmp_path, capsys, monkeypatch
+):
+    clear_keys(monkeypatch)
+    config, out = build_publishable(tmp_path)
+    rc = main(["publish", "--config", str(config), "--out", str(out)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "fixture-platform" in err
+    assert "registered" in err
+
+
+def test_publish_names_the_missing_credential_before_it_reads_a_row(
+    tmp_path, capsys, monkeypatch, registered_platform
+):
+    clear_keys(monkeypatch)
+    monkeypatch.delenv("CD_PUBLISH_TOKEN", raising=False)
+    config, out = build_publishable(tmp_path)
+    (out / "review.csv").unlink()  # the credential check has to come first
+    rc = main(["publish", "--config", str(config), "--out", str(out)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "CD_PUBLISH_TOKEN" in err
+    assert "review.csv" not in err
+    assert "Traceback" not in err
+
+
+def test_publish_says_so_when_there_are_no_drafts_yet(
+    tmp_path, capsys, monkeypatch, registered_platform
+):
+    clear_keys(monkeypatch)
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    config, out = build_publishable(tmp_path)
+    (out / "review.csv").unlink()
+    rc = main(["publish", "--config", str(config), "--out", str(out)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "review.csv" in err
+    assert "Traceback" not in err
+
+
+def test_publish_refuses_to_run_without_a_terminal(
+    tmp_path, capsys, monkeypatch, registered_platform
+):
+    """`yes | commentdraft publish` is exactly the thing the four keys were chosen
+    to prevent, and a pipe answers a prompt faster than any finger can. There is
+    nothing at the other end of a redirect that can read a reply, so there is
+    nothing there that can approve one."""
+    clear_keys(monkeypatch)
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    config, out = build_publishable(tmp_path)
+    rc = main(["publish", "--config", str(config), "--out", str(out)])
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "terminal" in err
+    assert FixturePlatform.calls == []
+
+
+def test_publish_dry_run_needs_no_credential_and_no_terminal(
+    tmp_path, capsys, monkeypatch, registered_platform
+):
+    """The point of a dry run is reading what a platform would receive before
+    granting any write scope, so requiring the write credential to run one would
+    defeat it entirely."""
+    clear_keys(monkeypatch)
+    monkeypatch.delenv("CD_PUBLISH_TOKEN", raising=False)
+    config, out = build_publishable(tmp_path)
+    rc = main(["publish", "--config", str(config), "--out", str(out), "--dry-run"])
+    output = capsys.readouterr().out
+    assert rc == 0
+    assert FixturePlatform.calls == []
+    assert "eighteen dollars" in output
+    assert not (out / "published.jsonl").exists()
+
+
+def test_publish_offers_only_the_rows_decided_reply(
+    tmp_path, capsys, monkeypatch, registered_platform
+):
+    clear_keys(monkeypatch)
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    config, out = build_publishable(tmp_path)
+    rc = main(["publish", "--config", str(config), "--out", str(out), "--dry-run"])
+    output = capsys.readouterr().out
+    assert rc == 0
+    assert "[ 1 / 1 ]" in output  # two rows in the file, one of them a reply
+
+
+def test_publish_sends_one_reply_per_keystroke_and_records_it(
+    tmp_path, capsys, monkeypatch, registered_platform, at_a_keyboard
+):
+    """End to end from the command an operator types, with a scripted reviewer."""
+    import json
+
+    clear_keys(monkeypatch)
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    config, out = build_publishable(tmp_path)
+    pressed = iter(["y"])
+    monkeypatch.setattr("builtins.input", lambda: next(pressed))
+
+    rc = main(["publish", "--config", str(config), "--out", str(out)])
+
+    assert rc == 0
+    assert FixturePlatform.calls == [("1", "eighteen dollars")]
+    (line,) = (out / "published.jsonl").read_text(encoding="utf-8").splitlines()
+    entry = json.loads(line)
+    assert entry["published_id"] == "published-1"
+    assert entry["parent_id"] == "1"
+    assert entry["edited"] is False
+    assert entry["config"] == str(config)

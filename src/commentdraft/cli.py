@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Command line entry point: run, review, chat, ui, ingest, bakeoff.
+"""Command line entry point: run, review, publish, chat, ui, ingest, bakeoff.
 
 Startup problems print one line and return 2. A traceback at that point would be
 noise: nothing has run, and the only useful fact is which file or which variable
@@ -19,7 +19,7 @@ from .bakeoff import bakeoff_model_cfgs
 from .config import ConfigError, load_config, load_env
 from .engine import read_comments, run_one, run_pipeline, write_rows
 from .prompt import render_system_text
-from .render.review_html import blind_label, load_row_sets, render_review
+from .render.review_html import blind_label, load_row_sets, load_rows, render_review
 from .report import build_report
 from .sources import SourceError, load_knowledge
 
@@ -281,6 +281,91 @@ def cmd_ui(args) -> int:
     return 0
 
 
+def _at_a_keyboard() -> bool:
+    """True when there is a person at the other end of this process's stdin.
+
+    `yes | commentdraft publish` is the exact failure the four keys were chosen
+    to prevent, and a pipe answers a prompt faster than any finger can. Nothing
+    at the far end of a redirect can read a reply, so nothing there can approve
+    one, and the refusal belongs before the first row rather than after the
+    fortieth send.
+    """
+    return sys.stdin.isatty()
+
+
+def cmd_publish(args) -> int:
+    """Hand the drafted replies to a person, one at a time, and send what they approve.
+
+    Every reason to refuse is found before a row is read, in the order an
+    operator can act on: the config, then the platform, then the credential, then
+    whether anybody is there to approve anything. A read only setup is the
+    recommended starting point, so the message for one has to describe the setup
+    rather than read as a fault.
+    """
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as e:
+        return _fail(str(e))
+    except OSError as e:
+        return _fail(f"cannot read a file named in {args.config}: {e}")
+
+    # Lazy, on the same rule as cmd_ui: a subcommand's dependencies load when that
+    # subcommand runs, so importing this module still touches nothing.
+    from .approve import approve_and_publish
+    from .platforms import PlatformError, get_platform, publish_target
+
+    try:
+        platform_name, credential_env = publish_target(cfg)
+        platform = get_platform(platform_name)
+    except PlatformError as e:
+        return _fail(str(e))
+
+    # Before a single row is read, and skipped entirely for a dry run: the whole
+    # point of a dry run is that a person can read what a platform would receive
+    # before granting any write scope at all, and demanding the write scope in
+    # order to look would defeat it.
+    if not args.dry_run and not os.environ.get(credential_env):
+        return _fail(
+            f"missing env var(s): {credential_env} (put them in .env next to {args.config})"
+        )
+
+    csv_path = Path(args.out) / "review.csv"
+    if not csv_path.exists():
+        return _fail(
+            f"nothing to publish: {csv_path} does not exist. Run `commentdraft run` first."
+        )
+    try:
+        rows = load_rows(csv_path)
+    except UnicodeDecodeError as e:
+        return _fail(f"cannot read {csv_path}: {e}\nSave it as CSV UTF-8.")
+    except OSError as e:
+        return _fail(f"cannot read {csv_path}: {e}")
+
+    # Last, because it is the only refusal that is about how the command was
+    # invoked rather than about how the operator's setup is written, and the
+    # other three are more useful to hear first.
+    if not args.dry_run and not _at_a_keyboard():
+        return _fail(
+            "publish needs a terminal: every reply is approved one keystroke at a time, "
+            "and a pipe or a redirect cannot read a reply. Run it from a terminal, or "
+            "use --dry-run to see what would be sent."
+        )
+
+    counts = approve_and_publish(
+        rows,
+        cfg,
+        platform,
+        platform_name=platform_name,
+        config_label=str(args.config),
+        log_path=Path(args.out) / "published.jsonl",
+        dry_run=args.dry_run,
+    )
+    # Non-zero when a send was refused by the platform, on the same rule as a run
+    # that lost rows: a scripted caller must not mistake a partial pass for a
+    # clean one. A reply the reviewer skipped is not a failure.
+    return 1 if counts["failed"] else 0
+
+
 def cmd_ingest(args) -> int:
     try:
         cfg = load_config(args.config)
@@ -362,6 +447,20 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--title", default="Reply review")
     review.add_argument("--currency-note", dest="currency_note", default="")
 
+    # Reads out/review.csv and writes out/published.jsonl, so --out is the whole
+    # of its file handling. There is deliberately no --yes and no --all: approval
+    # is a keystroke against one reply and cannot be expressed on a command line,
+    # which tests/test_guarantees.py asserts by walking every option this parser
+    # offers. See src/commentdraft/approve.py for the argument.
+    publish = _common(subs.add_parser("publish", help="send the replies a person approves"))
+    publish.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help="print what each send would carry and send nothing. Asks for no "
+        "keystroke and no publish credential.",
+    )
+
     chat = _common(subs.add_parser("chat", help="try one comment at a time"))
     chat.add_argument(
         "--platform", default="", help="defaults to the first entry of behavior.platforms"
@@ -390,6 +489,7 @@ HANDLERS = {
     "run": cmd_run,
     "bakeoff": cmd_bakeoff,
     "review": cmd_review,
+    "publish": cmd_publish,
     "chat": cmd_chat,
     "ui": cmd_ui,
     "ingest": cmd_ingest,

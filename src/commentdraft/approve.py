@@ -119,6 +119,18 @@ def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def keyboard() -> str:
+    """One line from whoever is at the terminal.
+
+    A function of its own rather than `input` itself, so that the name is
+    resolved when it is called instead of when this module is imported. A test
+    standing in front of the real terminal then needs nothing but the ordinary
+    way of standing in front of it, and the default parameter below stays a real
+    default rather than a hook.
+    """
+    return input()
+
+
 def edit_in_editor(text: str) -> str:
     """Open the draft in $EDITOR and hand back whatever comes out.
 
@@ -154,7 +166,7 @@ def approve_and_publish(
     config_label: str,
     log_path: str | Path,
     dry_run: bool = False,
-    read_key: Callable[[], str] = input,
+    read_key: Callable[[], str] = keyboard,
     out: Writer | None = None,
     edit: Callable[[str], str] = edit_in_editor,
     now: Callable[[], str] = _utc_now,

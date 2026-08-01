@@ -149,7 +149,12 @@ this tool talks to.
 
 - **It does not queue, schedule, or send anything on its own.** No connector for any
   platform ships today. The code that will send one exists, in exactly one module,
-  and reaching it costs one keystroke per reply:
+  and reaching it costs one keystroke per reply. `commentdraft publish` shows you one
+  comment and one draft at a time and waits: `y` sends that one, `e` opens it in
+  `$EDITOR` and sends what comes back, `s` skips, `q` stops, and Enter does nothing
+  at all. `commentdraft publish --dry-run` prints what each send would carry, asks
+  for no keystroke, and needs no publish credential, so you can read it before
+  granting any write scope anywhere.
 
   ```bash
   grep -rn --include='*.py' --exclude=approve.py --exclude-dir=platforms 'publish_reply' src/

@@ -730,3 +730,114 @@ def test_one_keystroke_sends_exactly_one_reply(tmp_path: Path) -> None:
 
     assert platform.calls == [(PUBLISH_METHOD, "c1", "draft 1")]
     assert counts["sent"] == 1
+
+
+# --- d. a read only deployment is a real one --------------------------------
+
+
+def _fake_client(canned: str):
+    """The SDK surface the engine uses, offline and keyless."""
+    import types
+
+    class _Completions:
+        def create(self, **kwargs):
+            usage = types.SimpleNamespace(
+                prompt_tokens=1000,
+                completion_tokens=10,
+                prompt_tokens_details=types.SimpleNamespace(cached_tokens=0, cache_write_tokens=0),
+            )
+            message = types.SimpleNamespace(content=canned)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=message)], usage=usage
+            )
+
+    return types.SimpleNamespace(chat=types.SimpleNamespace(completions=_Completions()))
+
+
+def test_a_config_with_no_publish_credential_loads_runs_and_drafts(tmp_path, monkeypatch) -> None:
+    """Most people should run this way for a while and some should run this way
+    forever, so it cannot be a degraded mode that limps.
+
+    The product directory is built by tests/test_cli.py's own builder rather than
+    a second one written here: two definitions of "a valid product" is how the
+    two end up disagreeing about what a valid product is.
+    """
+    import json as _json
+
+    from commentdraft import cli
+    from commentdraft.config import load_config
+    from commentdraft.platforms import PlatformError, publish_target
+    from test_cli import build_product
+
+    config = build_product(tmp_path)  # no [publish] table at all
+    monkeypatch.setenv("CD_KEY_MAIN", "not-a-real-key")
+    canned = _json.dumps(
+        {"decision": "reply", "reason": "asks the price", "reply_text": "eighteen dollars"}
+    )
+    monkeypatch.setattr(cli, "make_client", lambda model_cfg: _fake_client(canned))
+
+    # It loads.
+    cfg = load_config(config)
+    assert "publish" not in cfg
+
+    # It runs and it drafts.
+    out = tmp_path / "out"
+    rc = cli.main(
+        [
+            "run",
+            "--config",
+            str(config),
+            "--comments",
+            str(tmp_path / "comments.csv"),
+            "--out",
+            str(out),
+        ]
+    )
+    assert rc == 0
+    drafted = (out / "review.csv").read_text(encoding="utf-8")
+    assert "eighteen dollars" in drafted
+
+    # And publishing refuses it, by name, rather than by KeyError.
+    with pytest.raises(PlatformError) as exc:
+        publish_target(cfg)
+    assert "publish" in str(exc.value)
+
+
+def test_publish_refuses_a_config_with_no_credential_and_names_what_is_missing(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    """Three separate ways to have no write scope, and each one has to say which
+    one it is. An operator who reads "missing credential" when the real problem
+    is a platform nobody registered will go looking for a token they already
+    have."""
+    from commentdraft import cli
+    from commentdraft.platforms import PLATFORMS
+    from test_cli import build_product
+
+    class _Connector:
+        def fetch_comments(self, config, since):
+            return []
+
+        def publish_reply(self, config, parent_id, text):
+            raise AssertionError("no test may reach this")
+
+    monkeypatch.delenv("CD_PUBLISH_TOKEN", raising=False)
+
+    # 1. No [publish] table.
+    config = build_product(tmp_path / "readonly", extra="")
+    assert cli.main(["publish", "--config", str(config), "--out", str(tmp_path / "o1")]) == 2
+    assert "publish" in capsys.readouterr().err
+
+    # 2. A [publish] table naming a platform nobody registered.
+    named = '\n[publish]\nplatform = "fixture-gate"\ncredential_env = "CD_PUBLISH_TOKEN"\n'
+    config = build_product(tmp_path / "unknown", extra=named)
+    assert cli.main(["publish", "--config", str(config), "--out", str(tmp_path / "o2")]) == 2
+    assert "fixture-gate" in capsys.readouterr().err
+
+    # 3. A registered platform and no token in the environment.
+    monkeypatch.setitem(PLATFORMS, "fixture-gate", _Connector)
+    config = build_product(tmp_path / "keyless", extra=named)
+    assert cli.main(["publish", "--config", str(config), "--out", str(tmp_path / "o3")]) == 2
+    err = capsys.readouterr().err
+    assert "CD_PUBLISH_TOKEN" in err
+    assert "Traceback" not in err
