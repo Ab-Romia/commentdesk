@@ -57,7 +57,8 @@ Verified against Meta's live documentation, read 2026-08-01:
 | Quoted policy text | Quoted verbatim from the page named beside it, with the date read |
 | Meta's own defects | Reproduced through two independent extraction methods before being called defects |
 
-Not verified against a live account, and this list is complete:
+Not verified against a live account. These are the items that matter, and each settles
+with a run against a real Page rather than another pass over the documentation:
 
 - That `POST /v26.0/{comment-id}/comments` creates a reply. Nobody has made the call.
 - That `POST /v26.0/{comment_id}` with a `message` edits the comment rather than

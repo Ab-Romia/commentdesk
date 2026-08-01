@@ -110,7 +110,8 @@ rendered code samples differed between two fetch paths of the same URL in the sa
 minute. Do not conclude "absent" from one extraction mode, and do not read the version
 string in a rendered sample as a staleness signal.
 
-Not verified, and this list is complete:
+Not verified. These are the items that matter, and each settles with a live call rather
+than another pass over the documentation:
 
 - That `POST /{ig-comment-id}/replies` behaves as documented on media created since 2021.
   Its three limitations sit on a page Meta last updated 2021-11-09.

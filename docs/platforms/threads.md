@@ -95,7 +95,8 @@ actually carry:
    independent resolvers, and the clause quoted was not the one that matters most to a
    business. See [What the terms say](#what-the-terms-say).
 
-Not verified, and this list is complete:
+Not verified. These are the items that matter, and each settles with a live call rather
+than another pass over the documentation:
 
 - Whether a reply held in the approval queue appears in `GET /{media-id}/replies` or
   `GET /{media-id}/conversation` before it is approved. "Hidden until then" implies not.

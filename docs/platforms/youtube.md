@@ -80,7 +80,9 @@ Verified by fetching the page and reading the raw HTML, 2026-08-01:
 | Quoted policy and form text | Quoted verbatim from the page named beside it, with the date read |
 | The compliance audit form | The live form was fetched and its field labels read, not summarised from a help page |
 
-Not verified, and this list is complete:
+Not verified. These are the items that matter, and each settles with a live call, or in
+the last case with going through an audit, rather than another pass over the
+documentation:
 
 - Whether a delegated Manager or Editor on a channel can authorise `comments.insert` at
   all. See [Channel roles](#channel-roles-and-brand-accounts).

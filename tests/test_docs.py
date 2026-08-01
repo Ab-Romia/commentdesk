@@ -234,6 +234,94 @@ def test_facebook_platform_guide_keeps_the_admissions_that_make_it_worth_reading
     assert "Unpublished." in flat
 
 
+PLATFORM_GUIDES = sorted((DOCS / "platforms").glob("*.md"))
+
+
+def _section_after(text: str, heading_matches) -> str | None:
+    """The body under the first heading `heading_matches` accepts, or None."""
+    headings = list(re.finditer(r"^(#+)[ \t]+(.+?)[ \t]*$", text, re.MULTILINE))
+    for index, match in enumerate(headings):
+        if not heading_matches(match.group(2)):
+            continue
+        level = len(match.group(1))
+        end = len(text)
+        for later in headings[index + 1 :]:
+            if len(later.group(1)) <= level:
+                end = later.start()
+                break
+        return text[match.end() : end]
+    return None
+
+
+@pytest.mark.parametrize("path", PLATFORM_GUIDES, ids=lambda p: p.name)
+def test_every_platform_guide_keeps_the_admissions_that_make_it_worth_reading(path):
+    """The admission sections are the whole value of this set, so every page keeps them.
+
+    Only facebook.md had a content test. The other seven shipped with nothing holding
+    them to the thing that makes them worth reading: that each one says out loud how far
+    the checking went, and that seven of the eight say there is no connector for the
+    platform they document. Both are the parts a later edit tidies away first, because a
+    page reads more confident without them and no test noticed.
+
+    The assertions are deliberately about substance and not about sentences. A guide can
+    reword its heading, renumber its list or rewrite every bullet and still pass. It
+    fails when the section is gone, when the list of open questions has been emptied out,
+    or when the sentence saying no connector exists has been deleted rather than replaced
+    on the day one does.
+
+    The refusal string is checked as well as the prose, because it is the one claim on
+    these pages the CLI can contradict. `unknown platform: <name>` is what an operator
+    actually sees, so a page that still prints it after a connector ships is a page
+    lying about runnable software, and this test is what fails first.
+    """
+    text = path.read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+
+    # 1. A section that separates what was checked from what was not. Any heading that
+    #    names checking and negation qualifies: "verified ... and what is not", "what was
+    #    checked and what was not", and anything else an editor reaches for.
+    def names_the_split(heading: str) -> bool:
+        low = heading.lower()
+        return bool(re.search(r"verif|check", low) and re.search(r"\bnot\b", low))
+
+    section = _section_after(text, names_the_split)
+    assert section is not None, (
+        f"{path.name} has no section stating what is verified and what is not. "
+        "That section is the reason this page is worth more than a blog post."
+    )
+
+    # 2. It has to carry the unverified half, not just the reassuring half.
+    assert re.search(
+        r"not (verified|established|resolvable|checked|confirmed)|nobody has",
+        section,
+        re.IGNORECASE,
+    ), f"{path.name}'s verification section no longer names anything as unverified"
+    # Length rather than a bullet count, because the pages do not agree on shape: most
+    # list their open questions, tiktok splits them into a re-rendered table, a
+    # single-sourced list and a prose sentence. The shortest of the eight is over 2,000
+    # characters, so this only fires on a section gutted down to a reassuring line.
+    assert len(section) >= 800, (
+        f"{path.name}'s verification section is {len(section)} characters. It has been "
+        "cut down to something that admits nothing."
+    )
+
+    # The unsettled items have to have somewhere to live, and it has to be a place a
+    # reader can reach rather than a phrase inside a paragraph.
+    assert _section_after(text, lambda h: "unknown" in h.lower()) is not None, (
+        f"{path.name} no longer has a section for what could not be settled"
+    )
+
+    # 3. Facebook is the one platform with a connector. The other seven say so plainly.
+    if path.stem == "facebook":
+        return
+    assert re.search(rf"\bno {re.escape(path.stem)} connector\b", flat, re.IGNORECASE), (
+        f"{path.name} no longer states plainly that there is no {path.stem} connector"
+    )
+    assert f"unknown platform: {path.stem}" in flat, (
+        f'{path.name} no longer prints the refusal an operator gets for platform = "{path.stem}"'
+    )
+
+
 def test_limits_doc_states_every_known_limit():
     text = read_doc("limits.md")
     for phrase in (

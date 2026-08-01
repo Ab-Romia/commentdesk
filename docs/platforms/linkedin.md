@@ -109,7 +109,8 @@ Verified against LinkedIn's live documentation, read 2026-08-01:
 | Quoted policy text | Fetched as raw text with `curl` rather than as a summary of the page, and quoted with the revision date printed on the document |
 | Page dates | Taken from `ms.date` and `updated_at` front matter rather than inferred, which is how the 2022 bodies under 2026 stamps were caught |
 
-Not established, and this list is complete:
+Not established. These are the items that matter, and each settles by going through the
+review and making the call rather than by another pass over the documentation:
 
 - Whether `r_member_social_feed` is granted in practice to an applicant who asks. It is
   restricted and vetted, the request flow is behind an authenticated portal, and nobody

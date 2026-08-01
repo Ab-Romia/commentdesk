@@ -128,7 +128,7 @@ The company gate is the single most consequential sentence on this page and it i
 that second list. It is quoted verbatim from a rendered page, by one reader, once. Check
 it yourself before you make a decision on it.
 
-Not resolvable from documentation at all, and listed in full under
+Not resolvable from documentation at all, and carried under
 [What is still unknown](#what-is-still-unknown): whether the 1,200 character reply limit
 counts code points or bytes, what the Access Application Form asks for, what its
 turnaround is, whether any of this costs money, and what invalidates a token outside its

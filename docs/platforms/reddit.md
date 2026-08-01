@@ -74,7 +74,8 @@ Verified against Reddit's live pages, fetched 2026-08-01:
 | Rate limit headers on an unauthenticated call | Measured, three consecutive requests. Numbers in [Limits](#limits) |
 | That an unregistered platform name is refused | Run against this repository. Output above |
 
-Not verified, and this list is complete:
+Not verified. These are the items that matter, and each settles with a granted token and
+a live call rather than another pass over the documentation:
 
 - That bearer tokens expire after one hour. Single-sourced to a repository Reddit
   archived in 2017.
