@@ -84,6 +84,18 @@ than to the labels, since this command never saw your config's labels, only the
 files, but as long as you passed the files in the order `bakeoff` printed, the two key
 files agree letter for letter.
 
+A blind page also prints no cost total and no currency note. The plain page prints
+both. Cost identifies a source: the totals from the run below are published per model
+further down this very page, and a route with cached input pricing sits an order of
+magnitude under one without, so a figure per letter is a name per letter. The decision
+tally stays, because how many comments a source replied to, skipped and escalated is
+part of what you are scoring. Read the costs out of the run report or the CSVs after
+you have opened the key.
+
+What blinding cannot cover: a model that names itself inside a reply, inside its
+recorded reason, or inside an error string that quotes the request back. Nothing reads
+those cells looking for a name. Expect the occasional one and score the rest.
+
 Score the page first. Open a key file afterward. This is not ceremony: the letters
 change scores, and you will not notice yourself doing it.
 

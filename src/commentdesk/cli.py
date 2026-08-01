@@ -356,7 +356,8 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--blind",
         action="store_true",
-        help="label the sets A, B, C and write the key to a separate file",
+        help="label the sets A, B, C, drop the model column and the cost, "
+        "and write the key to a separate file",
     )
     review.add_argument("--title", default="Reply review")
     review.add_argument("--currency-note", dest="currency_note", default="")

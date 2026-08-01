@@ -209,6 +209,12 @@ def render_review(
     blind_key maps each neutral label to the source it stands for, and is empty
     when blind is False. It is returned rather than written so that the caller
     decides where it lands, which is what keeps the key out of the page itself.
+
+    blind=True withholds three things: the source name in each heading, the model
+    column, and the cost line with the currency note under it. What it cannot
+    withhold is text a model wrote about itself, in a reply, in a reason, or in an
+    error string that quotes the request back. Nothing here reads those cells for
+    a name, and a scorer should expect the occasional one.
     """
     columns = [c for c in COLUMNS if not (blind and c[0] in BLIND_HIDDEN)]
     key: dict[str, str] = {}
@@ -239,11 +245,21 @@ def render_review(
         line = f"{len(rows)} comments" + (f": {tally}" if tally else "")
         parts.append(f'<p class="tally">{_esc(line)}</p>')
 
-        total, unpriced = total_cost(rows)
-        cost_line = f"total cost: ${total:.4f}"
-        if unpriced:
-            cost_line += f" ({unpriced} of {len(rows)} rows carry no cost figure)"
-        parts.append(f'<p class="cost">{_esc(cost_line)}</p>')
+        # No cost figure on a blind page. Cost identifies a source as surely as the
+        # model column does: the totals this project measured are published per model
+        # in docs/bakeoff.md, so a reader of this repository can undo the blinding
+        # from the page in seconds, and even with no table to consult a route with
+        # cached prefix pricing lands an order of magnitude below one without. A
+        # scorer who reads that cannot un-read it. It has already decided a tie here.
+        # The tally above stays, because how many comments a source replied to,
+        # skipped and escalated is part of what a scorer is judging. Cost is not, and
+        # it belongs to the phase after the key file is opened.
+        if not blind:
+            total, unpriced = total_cost(rows)
+            cost_line = f"total cost: ${total:.4f}"
+            if unpriced:
+                cost_line += f" ({unpriced} of {len(rows)} rows carry no cost figure)"
+            parts.append(f'<p class="cost">{_esc(cost_line)}</p>')
 
         parts.append(
             "<table><thead><tr>"
@@ -260,7 +276,12 @@ def render_review(
             )
         parts.append("</tbody></table>")
 
-    parts.append(f'<p class="note">{_esc(currency_note or DEFAULT_CURRENCY_NOTE)}</p>')
+    # The currency note explains the figure the branch above withholds, so a blind
+    # page carries neither. It is also the one line on the page an operator writes
+    # by hand, and a hand-written note about rates is a natural place to type the
+    # name of the route those rates belong to.
+    if not blind:
+        parts.append(f'<p class="note">{_esc(currency_note or DEFAULT_CURRENCY_NOTE)}</p>')
     parts.append(f'<p class="note">{_esc(NEVER_POSTED_NOTE)}</p>')
     parts.append("</body></html>")
     return "\n".join(parts), key

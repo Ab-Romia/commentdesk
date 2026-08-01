@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import re
 from html.parser import HTMLParser
 
 from commentdesk.render.review_html import (
@@ -98,6 +99,38 @@ def test_blind_mode_relabels_the_sets_and_returns_the_key():
     # The model column names the source the letters exist to hide, so blind mode
     # drops it. Leaving it in would undo the blinding one column to the right.
     assert "test/model-small" not in page
+
+
+def test_blind_mode_prints_no_cost_figure_and_plain_mode_still_does():
+    """Cost names the source as surely as the model column does.
+
+    The three totals this project measured are published per model in
+    docs/bakeoff.md, so a reader of the repository's own documentation can undo
+    the blinding from the page in seconds. Even with no table to consult, a route
+    with cached prefix pricing lands an order of magnitude below one without, and
+    a scorer who notices that cannot un-notice it. The author of this repository
+    scored a blind page, read the cost lines, and used them to break a tie between
+    two sources he had judged equal, which is the failure this pins.
+
+    The decision tally is not the same kind of thing and stays: how many comments
+    a source replied to, skipped and escalated is part of what a scorer is judging.
+    """
+    rows = [make_row(id="1"), make_row(id="2", decision="skip", cost_usd="")]
+    blind, _ = render_review([("orchid-mini", rows)], title="Comparison", blind=True)
+    assert "total cost" not in blind
+    assert '<p class="cost"' not in blind
+    # These rows quote no price of their own, so any dollar figure on the page came
+    # from the renderer. A real page carries the product's price inside replies.
+    assert re.search(r"\$\s*\d", blind) is None, "a cost figure survived on a blind page"
+    assert "carry no cost figure" not in blind
+    # The note explains a figure that is no longer on the page, and a note supplied
+    # with --currency-note is one more place a source name can be typed by hand.
+    assert "point-in-time" not in blind
+    assert "2 comments: reply=1, skip=1" in blind
+
+    plain, _ = render_review([("orchid-mini", rows)], title="Comparison")
+    assert "total cost: $0.0001" in plain
+    assert "1 of 2 rows carry no cost figure" in plain
 
 
 def test_without_blind_the_key_is_empty_and_the_source_is_named():

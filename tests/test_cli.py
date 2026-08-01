@@ -430,6 +430,10 @@ def test_review_blind_writes_the_key_beside_the_page(tmp_path):
     page = (tmp_path / "out" / "review.html").read_text(encoding="utf-8")
     assert "review-alpha" not in page
     assert "Set A" in page
+    # End to end, from the command a scorer actually types: no cost figure reaches
+    # the page, because the totals are per model and published in docs/bakeoff.md.
+    assert "total cost" not in page
+    assert "0.000400" not in page
 
 
 def test_review_approved_drops_the_banner(tmp_path):
