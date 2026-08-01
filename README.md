@@ -3,16 +3,9 @@
 Triage social-media comments from a CSV and draft grounded replies for a person to send.
 
 [![CI][ci-badge]][ci-link]
+[![PyPI][pypi-badge]][pypi-link]
 [![Python][python-badge]][python-link]
 [![License][license-badge]][license-link]
-
-<!-- The PyPI badge is out of the row above until the first release, because until
-     then it renders as "package or version not found", and a badge that says a
-     package is missing is worse than no badge. Its two definitions are still at the
-     bottom of this file next to the others, so restoring it is one line: put
-     [![PyPI][pypi-badge]][pypi-link] back into the row above. -->
-
-<!-- [![PyPI][pypi-badge]][pypi-link] -->
 
 > **The one thing to know before anything else.** commentdesk never publishes.
 > It reads a CSV, writes a page of drafts, and exits. Sending a reply is a person's
@@ -38,23 +31,19 @@ Python 3.11 or newer, and an API key for any OpenAI-compatible chat endpoint.
 
 ## Install
 
-commentdesk is not on PyPI yet, so install it from this repository. Both of these
-work today:
-
-```bash
-uv tool install git+https://github.com/Ab-Romia/commentdesk.git
-uv tool install "commentdesk[pdf] @ git+https://github.com/Ab-Romia/commentdesk.git"
-```
-
-The second adds the PDF knowledge source, which is an optional extra because it
-pulls in a rendering library that a text knowledge file does not need.
-
-Once the first release is published, the shorter form starts working and this
-section becomes:
-
 ```bash
 uv tool install commentdesk
 uv tool install "commentdesk[pdf]"
+```
+
+The second adds the PDF knowledge source, which is an optional extra because it
+pulls in a rendering library that a text knowledge file does not need. `pip install`
+works the same way if you would rather not use uv.
+
+To run an unreleased change, install from the repository instead:
+
+```bash
+uv tool install git+https://github.com/Ab-Romia/commentdesk.git
 ```
 
 ## The whole thing, end to end
@@ -75,24 +64,24 @@ commentdesk review out/review.csv --out out
 escalates, what the run cost, and which drafts repeat each other. `review` turns the
 CSV into `out/review.html`, which is the page below.
 
-![The review page, headed "Reply review", with a red DRAFT, NOT APPROVED banner across the top reading "Every reply below was drafted by software and has been approved by nobody. Read each one, edit what needs editing, and take editorial responsibility for it before it goes anywhere." Under the banner, the file heading "review-primary", a tally line reading "30 comments: escalate=5, reply=16, skip=9", and a cost line reading "total cost: $0.0012 (1 of 30 rows carry no cost figure)". Below those, a table with columns for number, platform, author, context, comment, decision, reason, reply, model and error, showing the first seven rows: real drafted replies about mushrooms, price, praise, an edibility question, a Spanish translation request deflected to the team, a price objection answered without defending the price, and a beginner safety question.](docs/img/review-page.png)
+![The review page, headed "Reply review". A tally line reads "11 comments: escalate=4, reply=4, skip=3" above "total cost: $0.0006". Then one table with columns for number, platform, author, context, comment, decision, reason, reply, model and error. Rows tinted green were answered: a question about mushrooms answered from the source and pointed at the book, a price and place question answered with both, a direct question about whether a person or software writes the replies, answered with the configured disclosure sentence, and a Polish question about regional coverage answered in Polish. Rows tinted pink were escalated to a person and carry no draft: a shipping question, an unhappy buyer, a piracy report, and an allergy question. Untinted rows were skipped: a discount request, an accusation, and a request to convert the price into euros. A footer reads "Nothing on this page has been posted anywhere. This tool has no way to post."](docs/img/review-page.png)
 
 One table, one row per comment, carrying the decision, the reason, the draft reply and
 the model that wrote it, plus one cost total for the whole file rather than a column of
 per-row figures in front of a reviewer; the per-row token counts and costs stay in the
-CSV underneath.
+CSV underneath. Green rows were answered, pink rows go to a person, and the rest were
+left alone. The three decisions are the product: what it declines to answer matters as
+much as what it drafts.
 
-Nothing on that page is mocked up. It was written by
-`commentdesk review out/bakeoff/review-primary.csv --out out/bakeoff` from a real run
-against this repository's own field guide example, which is why its heading reads
-`review-primary` rather than `review`: the page names each input file by its stem, and
-`commentdesk bakeoff` writes one CSV per model label. `docs/bakeoff.md` writes that run
-up in full, against three models, with the results that did not flatter alongside the
-one that did. The two commands above give you the same page from `out/review.csv`,
-headed `review`, carrying whatever your own run measured.
+Nothing on that page is mocked up. Every row is real output from the run written up in
+`docs/bakeoff.md`, which put thirty comments through three models. Eleven of those rows
+are shown here, chosen so that all three decisions and the awkward cases are visible at
+once rather than the first seven rows, which all happen to be replies. Your own run
+produces the same page from `out/review.csv` with whatever it measured.
 
-The banner stays until you pass `--approved`, which you pass after reading every row
-and not before:
+That page was rendered with `--approved`. Without it, every page carries a red banner
+saying the drafts were approved by nobody, and it stays until you pass the flag, which
+you pass after reading every row and not before:
 
 ```bash
 commentdesk review out/review.csv --out out --approved

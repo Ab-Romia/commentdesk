@@ -118,16 +118,17 @@ def test_readme_badges_are_reference_style_and_defined_at_the_bottom(text):
     assert first_def > text.index("## License"), "badge definitions must sit at the bottom"
 
 
-def test_no_badge_in_the_row_depends_on_a_release_that_has_not_happened(text):
-    """Three of the five badges rendered "package or version not found", because the
-    package is not on PyPI and shields.io reads PyPI for the version, the Python
-    versions and the license alike. A front page whose own badges say the package is
-    missing is a bad first thirty seconds.
+def test_every_displayed_badge_resolves(text):
+    """Before the first release, three of the five badges rendered "package or version
+    not found": shields.io reads PyPI for the version, the supported Python versions
+    and the license alike, and there was no package for it to read. A front page whose
+    own badges report the package missing is a bad first thirty seconds.
 
-    The PyPI badge is commented out rather than deleted, and its definitions are kept,
-    so restoring it after the first release is one line. HTML comments are stripped
-    before the row is read, which is what lets that commented line sit in the file
-    without this test counting it as displayed.
+    commentdesk 0.1.0 is published, so the PyPI badge is back in the row. What this
+    still guards is the shape of the failure rather than that one moment: a badge shown
+    without a link definition renders as literal broken markdown, and the row is easy to
+    edit without noticing. HTML comments are stripped first, so a commented-out badge
+    does not count as displayed.
     """
     visible = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
     labels = set()
@@ -136,27 +137,24 @@ def test_no_badge_in_the_row_depends_on_a_release_that_has_not_happened(text):
     assert labels, "no displayed badges found"
 
     definitions = dict(re.findall(r"(?m)^\[([a-z-]+)\]:\s+(\S+)$", text))
-    for label in sorted(labels):
-        assert "/pypi/" not in definitions[label], (
-            f"badge {label} reads PyPI, which has no commentdesk to read yet"
-        )
-    # Kept, so the restore is an edit rather than a rewrite.
-    assert "pypi-badge" in definitions
-    assert "pypi-link" in definitions
+    undefined = sorted(label for label in labels if label not in definitions)
+    assert undefined == [], f"badges displayed with no link definition: {undefined}"
+    assert "pypi-badge" in labels, "the package is published, so its badge belongs in the row"
 
 
 def test_the_install_section_leads_with_something_that_works_today(text):
-    """`uv tool install commentdesk` fails: there is nothing on PyPI to install. The
-    section led with it under "once it ships", which is a front page telling a reader
-    to run a command that does not work."""
+    """The first command a reader meets has to be one they can run. Before the first
+    release that was the git URL, because `uv tool install commentdesk` had nothing to
+    install and the section led with it anyway. commentdesk is published now, so the
+    short form leads and the git URL stays for running an unreleased change.
+
+    The invariant outlives either state: whatever the first fenced block says, a reader
+    who copies it gets a working install."""
     section = _section(text, "## Install", "## The whole thing")
     blocks = _bash_blocks(section)
-    # The first command a reader meets has to be one they can run now.
-    assert "git+https://github.com/Ab-Romia/commentdesk.git" in blocks[0]
-    assert "not on PyPI yet" in section
-    # The PyPI form is kept and clearly marked, not deleted.
-    assert "uv tool install commentdesk\n" in blocks[-1]
-    assert "Once the first release is published" in section
+    assert "uv tool install commentdesk\n" in blocks[0]
+    # Kept, because it is the only way to run something that is not released yet.
+    assert "git+https://github.com/Ab-Romia/commentdesk.git" in blocks[-1]
 
 
 def test_the_env_example_documents_the_variable_and_not_a_value():
