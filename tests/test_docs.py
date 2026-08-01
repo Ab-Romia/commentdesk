@@ -465,6 +465,29 @@ FORBIDDEN_CLAIMS = [
     r"integrat",
 ]
 
+# Regions of a markdown file that are not this project speaking. Applied in this order,
+# because a fence can contain any of the others and a link target can contain a backtick.
+_FENCED_BLOCK = re.compile(
+    r"^[ \t]*(`{3,}|~{3,}).*?(?:^[ \t]*\1[ \t]*$|\Z)", re.MULTILINE | re.DOTALL
+)
+_BLOCKQUOTE_LINE = re.compile(r"^[ \t]*>.*$", re.MULTILINE)
+# A span stops at a blank line, so one stray backtick eats a sentence rather than the
+# rest of the file. Widening this would hide real claims instead of skipping quotations.
+_INLINE_CODE = re.compile(r"(`+)(?:(?!\n[ \t]*\n).)*?\1", re.DOTALL)
+_LINK_TARGET = re.compile(r"\]\([^)]*\)")
+_URL = re.compile(r"<?\bhttps?://[^\s<>)\]]*>?", re.IGNORECASE)
+
+
+def prose_only(text: str) -> str:
+    """`text` with every region that quotes somebody else removed.
+
+    What is left is the project's own sentences, which is the only thing the
+    forbidden-claims rule has any business reading.
+    """
+    for pattern in (_FENCED_BLOCK, _BLOCKQUOTE_LINE, _INLINE_CODE, _LINK_TARGET, _URL):
+        text = pattern.sub(" ", text)
+    return text
+
 
 # rglob, not glob. The platform guides live in docs/platforms/, and a `docs/*.md` glob
 # walked straight past them: the first one shipped uncovered by the rule its own README
@@ -472,6 +495,33 @@ FORBIDDEN_CLAIMS = [
 # pattern that stops holding the first time somebody adds a subdirectory.
 @pytest.mark.parametrize("path", sorted(DOCS.rglob("*.md")), ids=lambda p: str(p.relative_to(DOCS)))
 def test_a_doc_makes_no_claim_the_project_cannot_support(path):
-    lower = path.read_text(encoding="utf-8").lower()
+    """The rule is about what commentdraft claims, so it reads only what commentdraft says.
+
+    It used to match the raw file. That made it a rule about what a platform is allowed
+    to say about itself, which is not a rule this project gets to have. The words on the
+    list are ordinary words in somebody else's terms of service, and `integrat` is a
+    substring of a path segment on two vendors' documentation hosts.
+
+    Three guide authors hit it independently and every one of them paid for the pass out
+    of the citation rather than out of the page. TikTok trimmed the Accounts API overview
+    and the sandbox line to their first sentence, and cited the Community Guidelines by a
+    redirecting URL because the canonical path contains a matched substring. LinkedIn
+    quoted User Agreement 8.2 and the Professional Community Policies spam passage only in
+    part, and gave the Technical Sign Off page by description with no link at all. X
+    dropped a docs.x.com reference for the same substring. That is the rule inverted: a
+    set of pages whose entire value is that they quote primary sources exactly was
+    silently editing those sources so our own lint would go green.
+
+    So the scan skips fenced blocks, blockquote lines, inline code spans, and URLs both
+    bare and inside a markdown link target. Everywhere else it is unchanged and strict,
+    including link text, headings, tables and captions, which is where a page would
+    actually overclaim. A quotation that needs one of these words keeps it; a sentence of
+    ours that reaches for one still fails.
+
+    This is not a loosening and reverting it re-breaks three citations. If a claim slips
+    through, the fix is to move it out of the quotation it is hiding in, not to widen the
+    scan back over other people's words.
+    """
+    lower = prose_only(path.read_text(encoding="utf-8")).lower()
     hits = [pattern for pattern in FORBIDDEN_CLAIMS if re.search(pattern, lower)]
     assert hits == [], f"{path.name} uses forbidden claim language: {hits}"
