@@ -667,3 +667,61 @@ def test_a_scripted_transport_cannot_make_a_send_happen(tmp_path, monkeypatch) -
 
     assert counts["sent"] == 0
     assert graph.calls == [], "a connector call happened with no keystroke behind it"
+
+
+def test_an_edited_comment_ends_the_run_instead_of_moving_to_the_next_row(
+    tmp_path, monkeypatch
+) -> None:
+    """Driven through the real approval loop, not through the connector alone.
+
+    Two rows, a reviewer pressing the send key on both, and a platform whose
+    answer to the first write is the signature of an edit. The run has to end on
+    row one. The alternative, which is what an ordinary Exception would get, is
+    that the loop reports one failed row and then does the same thing to the
+    second customer's comment.
+    """
+    from commentdraft.approve import approve_and_publish
+    from conftest import scripted_reviewer
+
+    monkeypatch.setenv(TOKEN_ENV, "a-page-access-token")
+    graph = Graph()
+    graph.answer("POST", "c1/comments", {"id": "c1"})
+    graph.answer("POST", "c2/comments", {"id": "reply-2"})
+    rows = [
+        {
+            "id": identifier,
+            "platform": "facebook",
+            "comment": "how much is it",
+            "post_title": "a clip",
+            "decision": "reply",
+            "reply": "eighteen dollars",
+        }
+        for identifier in ("c1", "c2")
+    ]
+    pressed = iter(["y", "y"])
+    log = tmp_path / "published.jsonl"
+
+    class _Stream:
+        def write(self, text: str) -> int:
+            return len(text)
+
+    with (
+        wired(graph),
+        scripted_reviewer(lambda: next(pressed)),
+        pytest.raises(fb.ReplyInvariantError),
+    ):
+        approve_and_publish(
+            rows,
+            CONFIG,
+            get_platform("facebook"),
+            platform_name="facebook",
+            config_label="config.toml",
+            log_path=log,
+            out=_Stream(),
+        )
+
+    assert graph.of("POST", "c2/comments") == [], "the queue carried on after an edit"
+    assert next(pressed) == "y", "the second row was offered"
+    # And nothing claims to have been published, because nothing was: the write
+    # that happened was an edit and there is no id for a reply that never existed.
+    assert not log.exists()
