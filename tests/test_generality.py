@@ -12,10 +12,21 @@ no way to reach anyone. Connectors are being added, so that proof is no longer
 available, and the claim it was really carrying was never about HTTP clients: it
 was that nothing reaches a platform a person did not read and approve first. That
 claim survives connectors, so it is now enforced directly, by the approval gate
-tests in tests/test_guarantees.py. The import ban itself did not disappear either;
-it moved to test_no_module_outside_the_connectors_can_reach_a_platform, which
-confines every network client to src/commentdraft/platforms/ and leaves the
-engine, the gate, the CLI and the review page with no route to anyone's API.
+tests in tests/test_guarantees.py.
+
+That old test had two halves, and both of them moved rather than one. The import
+half is test_no_module_outside_the_connectors_can_reach_a_platform, and the
+hostname half is test_no_module_outside_the_connectors_names_a_platform_host.
+Neither bans anything outright any more, because a connector is a thing that
+talks to a platform and has to name one: both confine the capability to
+src/commentdraft/platforms/ instead, which leaves the engine, the gate, the CLI
+and the review page with no route to anyone's API and gives a reviewer auditing
+the network surface one directory to read.
+
+This paragraph used to describe only the import half while reading as an account
+of the whole test, during a period when the hostname half had been dropped with
+no successor at all. A comment describing a guard that does not exist is worse
+than no comment, so if either of those tests is ever removed, this goes with it.
 """
 
 import json

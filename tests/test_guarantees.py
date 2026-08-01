@@ -170,6 +170,25 @@ APPROVAL_TYPE = "Approval"
 # send key were quietly rebound to Enter.
 KEY_CONSTANTS = {"SEND_KEY", "EDIT_KEY"}
 
+# The prompt loop, and the one function that returns a key a person pressed.
+# Everything below anchors on provenance rather than on spelling: it is not
+# enough that a branch compares something to SEND_KEY, the thing compared has to
+# have come out of _press.
+GATE_FUNCTION = "approve_and_publish"
+PRESS_FUNCTION = "_press"
+
+# The only keywords an in-package caller may pass the gate. out, edit and now are
+# real parameters with real defaults because the suite drives the loop through
+# them, and one of them at the call site in cmd_publish is the cheapest bypass in
+# the repo: a caller supplying its own `edit` answers a prompt it also asked.
+GATE_CALL_KEYWORDS = {"platform_name", "config_label", "log_path", "dry_run"}
+
+# The private attribute the suite installs a scripted reviewer on. It is honoured
+# only while a test runner is in sys.modules, and it replaced a public `read_key`
+# keyword that let any importer publish a whole queue with `lambda: "y"`. No
+# module under src/ but the gate may so much as name it.
+SCRIPTED_SEAM = "_scripted_keys"
+
 
 def _tree(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -201,14 +220,59 @@ def _called_name(node: ast.Call) -> str:
     return ""
 
 
-def _call_sites(name: str) -> list[tuple[Path, ast.Call, ast.Module]]:
-    sites = []
+def _annotated(tree: ast.AST) -> set[int]:
+    """id() of every node inside an annotation. An annotation moves no value."""
+    return {
+        id(inner)
+        for node in ast.walk(tree)
+        for field in ("annotation", "returns")
+        for outer in [getattr(node, field, None)]
+        if outer is not None
+        for inner in ast.walk(outer)
+    }
+
+
+def _references(name: str) -> list[tuple[Path, ast.AST, ast.Module]]:
+    """Every mention of `name` in the package, whether or not it heads a call.
+
+    Collecting ast.Call was the hole under all three structural tests. The
+    statement `post = platform.publish_reply` contains no Call node at all, so a
+    loop calling `post(cfg, parent_id, text)` afterwards registered zero call
+    sites, and the same trick reached _send_approved through the module object.
+    An Attribute stores its name in the plain string field `.attr` rather than as
+    a Name node, so an attribute load was invisible to the Name-only checks too.
+
+    So the anchor is the reference rather than the call: any Name with this id,
+    and any Attribute whose .attr is this name, wherever either appears. A `def`
+    or a `class` of the same name is not a reference, because its name is also a
+    plain string field, which is what keeps the definitions themselves out.
+
+    Annotations are excluded. `approval: Approval` binds nothing at runtime, and
+    a test that reported it would push contributors to drop the annotations that
+    make this module readable.
+    """
+    sites: list[tuple[Path, ast.AST, ast.Module]] = []
     for path in _module_paths():
         tree = _tree(path)
+        skip = _annotated(tree)
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _called_name(node) == name:
+            if id(node) in skip:
+                continue
+            if (isinstance(node, ast.Name) and node.id == name) or (
+                isinstance(node, ast.Attribute) and node.attr == name
+            ):
                 sites.append((path, node, tree))
     return sites
+
+
+def _is_called(node: ast.AST, parents: dict[int, ast.AST]) -> bool:
+    """True when this reference is the thing being called, not a value being moved."""
+    parent = parents.get(id(node))
+    return isinstance(parent, ast.Call) and parent.func is node
+
+
+def _where(path: Path, node: ast.AST) -> str:
+    return f"{path.relative_to(REPO_ROOT)}:{getattr(node, 'lineno', '?')}"
 
 
 def _enclosing_function(node: ast.AST, parents: dict[int, ast.AST]) -> str:
@@ -222,21 +286,99 @@ def _contains(statement: ast.AST, target: ast.AST) -> bool:
     return any(node is target for node in ast.walk(statement))
 
 
-def _tests_a_key_constant(node: ast.If) -> bool:
-    """True when this `if` is an equality check against SEND_KEY or EDIT_KEY.
+def _gate_function(tree: ast.Module) -> ast.FunctionDef | None:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == GATE_FUNCTION:
+            return node
+    return None
+
+
+def _bindings(function: ast.AST):
+    """(name, value) for every place a name is bound inside `function`.
+
+    Every binding form, not only ast.Assign. A `for` target, a walrus, a `with
+    ... as`, an `except ... as` and a comprehension target all rebind a name, and
+    a check that counted assignments alone would call a name bound twice "bound
+    exactly once", which is the whole of what the provenance rule rests on.
+    """
+    for node in ast.walk(function):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                for name in ast.walk(target):
+                    if isinstance(name, ast.Name):
+                        yield name.id, node.value
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            for name in ast.walk(node.target):
+                if isinstance(name, ast.Name):
+                    yield name.id, node.value
+        elif isinstance(node, ast.NamedExpr):
+            yield node.target.id, node.value
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            for name in ast.walk(node.target):
+                if isinstance(name, ast.Name):
+                    yield name.id, None
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            for name in ast.walk(node.optional_vars):
+                if isinstance(name, ast.Name):
+                    yield name.id, None
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            yield node.name, None
+
+
+def _keystroke_names(tree: ast.Module) -> frozenset[str]:
+    """Names in the prompt loop bound exactly once, directly from _press(...).
+
+    This is the reframe from shape to provenance. The old rule asked only that
+    *some* operand of the `==` be a Name in KEY_CONSTANTS, which is satisfied by
+    `if _autopilot(cfg) == SEND_KEY:` and by the always-true `if "y" == SEND_KEY:`.
+    Neither of those reads a key from anybody. What actually has to be true is
+    that the value on the other side of the comparison came out of the prompt.
+
+    Bound exactly once, so the name cannot be rebound to something else further
+    down. A direct call by Name, so `mod._press(...)` through a module object,
+    which is the laundering trick this file now watches for everywhere else, does
+    not establish provenance here either.
+    """
+    function = _gate_function(tree)
+    if function is None:
+        return frozenset()
+    counts: dict[str, int] = {}
+    from_press: set[str] = set()
+    for name, value in _bindings(function):
+        counts[name] = counts.get(name, 0) + 1
+        if (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == PRESS_FUNCTION
+        ):
+            from_press.add(name)
+    return frozenset(name for name in from_press if counts[name] == 1)
+
+
+def _tests_a_key_constant(node: ast.If, keystroke: frozenset[str]) -> bool:
+    """True when this `if` compares a value that came from the prompt to a key.
 
     Equality specifically. `if pressed != SKIP_KEY:` reads almost the same and
     means the opposite: it sends on anything that is not a skip, Enter included.
+
+    Both sides must be plain Names, one of them a key constant and the other one
+    of the names _press produced. A Call or a Constant on either side is not a
+    keystroke, whatever it is spelled.
     """
     if not isinstance(node.test, ast.Compare):
         return False
     if [type(op) for op in node.test.ops] != [ast.Eq]:
         return False
     operands = [node.test.left, *node.test.comparators]
-    return any(isinstance(part, ast.Name) and part.id in KEY_CONSTANTS for part in operands)
+    if len(operands) != 2 or not all(isinstance(part, ast.Name) for part in operands):
+        return False
+    names = {part.id for part in operands}  # type: ignore[attr-defined]
+    return bool(names & KEY_CONSTANTS) and bool(names & keystroke)
 
 
-def _guarding_branch(node: ast.AST, parents: dict[int, ast.AST]) -> ast.If | None:
+def _guarding_branch(
+    node: ast.AST, parents: dict[int, ast.AST], keystroke: frozenset[str]
+) -> ast.If | None:
     """The `if pressed == SEND_KEY:` this node sits in the body of, if any.
 
     The body, never the orelse. An `else:` that reached a send would be reached
@@ -246,7 +388,7 @@ def _guarding_branch(node: ast.AST, parents: dict[int, ast.AST]) -> ast.If | Non
     for ancestor in _ancestors(node, parents):
         if (
             isinstance(ancestor, ast.If)
-            and _tests_a_key_constant(ancestor)
+            and _tests_a_key_constant(ancestor, keystroke)
             and any(_contains(statement, node) for statement in ancestor.body)
         ):
             return ancestor
@@ -256,27 +398,36 @@ def _guarding_branch(node: ast.AST, parents: dict[int, ast.AST]) -> ast.If | Non
 # --- a. the send exists in exactly one place --------------------------------
 
 
-def test_the_only_call_to_publish_reply_in_the_package_is_inside_the_gate() -> None:
+def test_the_only_reference_to_publish_reply_in_the_package_is_the_call_inside_the_gate() -> None:
     """This is what replaces the no-client claim.
 
     The old test said a platform client did not exist. That was true, checkable,
-    and about to stop being either. This one says the capability exists and has
-    exactly one call site, in the module whose entire job is to put a person in
-    front of it. A connector added tomorrow does not weaken it; a second call
-    site anywhere fails the build and names the file and the line.
+    and about to stop being either. This one says the capability exists and is
+    mentioned exactly once, in the module whose entire job is to put a person in
+    front of it. A connector added tomorrow does not weaken it; a second mention
+    anywhere fails the build and names the file and the line.
 
     Exactly one, not "none outside the gate": a test that tolerated zero would
     keep passing after somebody deleted the send and left the gate an empty
     ceremony, and a test that tolerated two inside the gate would let a second,
     ungated route grow next to the first.
+
+    Reference, not call. `post = platform.publish_reply` is not a Call node, so
+    the call-counting version of this test saw nothing at all while the send was
+    handed to a loop one line later.
     """
-    sites = _call_sites(PUBLISH_METHOD)
-    located = [f"{path.relative_to(REPO_ROOT)}:{node.lineno}" for path, node, _ in sites]
-    assert len(sites) == 1, f"{PUBLISH_METHOD} is called at {len(sites)} places: {located}"
+    sites = _references(PUBLISH_METHOD)
+    located = [_where(path, node) for path, node, _ in sites]
+    assert len(sites) == 1, f"{PUBLISH_METHOD} is named at {len(sites)} places: {located}"
 
     path, node, tree = sites[0]
-    assert path == GATE, f"{PUBLISH_METHOD} is called outside the approval gate: {located[0]}"
-    enclosing = _enclosing_function(node, _parents(tree))
+    assert path == GATE, f"{PUBLISH_METHOD} is named outside the approval gate: {located[0]}"
+    parents = _parents(tree)
+    assert _is_called(node, parents), (
+        f"{PUBLISH_METHOD} is referenced without being called at {located[0]}, which is "
+        "how a send gets carried out of its branch as a value"
+    )
+    enclosing = _enclosing_function(node, parents)
     assert enclosing == SEND_FUNCTION, (
         f"{PUBLISH_METHOD} is called from {enclosing or 'module level'}, not {SEND_FUNCTION}"
     )
@@ -314,15 +465,15 @@ def test_every_send_sits_inside_a_branch_an_explicit_keystroke_reaches(name: str
     either one out of that branch, wrap it in a loop over a batch, or reach it
     from an `else`, and this fails and names the line.
     """
-    sites = _call_sites(name)
+    sites = _references(name)
     assert sites, f"{name} is never used; the gate has been hollowed out"
     offenders = []
     for path, node, tree in sites:
-        where = f"{path.relative_to(REPO_ROOT)}:{node.lineno}"
+        where = _where(path, node)
         if path != GATE:
             offenders.append(f"{where} (outside the approval gate)")
             continue
-        if _guarding_branch(node, _parents(tree)) is None:
+        if _guarding_branch(node, _parents(tree), _keystroke_names(tree)) is None:
             offenders.append(f"{where} (not inside a branch testing {' or '.join(KEY_CONSTANTS)})")
     assert offenders == [], f"{name} is reachable without a keystroke: {offenders}"
 
@@ -348,9 +499,9 @@ def test_no_loop_sits_between_the_keystroke_and_the_send(name: str) -> None:
     `if` that read the key and the call it guards.
     """
     offenders = []
-    for path, node, tree in _call_sites(name):
+    for path, node, tree in _references(name):
         parents = _parents(tree)
-        branch = _guarding_branch(node, parents)
+        branch = _guarding_branch(node, parents, _keystroke_names(tree))
         if branch is None:
             continue  # the branch test above already reports this one
         for ancestor in _ancestors(node, parents):
@@ -358,61 +509,191 @@ def test_no_loop_sits_between_the_keystroke_and_the_send(name: str) -> None:
                 break
             if isinstance(ancestor, LOOPS):
                 offenders.append(
-                    f"{path.relative_to(REPO_ROOT)}:{node.lineno} is inside "
-                    f"{type(ancestor).__name__} at line {getattr(ancestor, 'lineno', '?')}"
+                    f"{_where(path, node)} is inside {type(ancestor).__name__} "
+                    f"at line {getattr(ancestor, 'lineno', '?')}"
                 )
     assert offenders == [], f"one keystroke could reach more than one send: {offenders}"
 
 
-@pytest.mark.parametrize("name", [SEND_FUNCTION, APPROVAL_TYPE])
+@pytest.mark.parametrize("name", [SEND_FUNCTION, APPROVAL_TYPE, PUBLISH_METHOD])
 def test_the_send_cannot_be_smuggled_out_of_its_branch_as_a_value(name: str) -> None:
     """A guarded call site is worth nothing if the callable can be handed elsewhere.
 
-    `later = _send` inside the branch, then `later(...)` in a loop outside it,
-    would satisfy the test above and defeat the point of it entirely. So these
-    two names may appear only where they are defined and where they are called.
-    An annotation is allowed: it moves no value at runtime.
+    `later = _send_approved` inside the branch, then `later(...)` in a loop
+    outside it, would satisfy the test above and defeat the point of it entirely.
+    So these names may appear only where they are defined and where they are
+    called. An annotation is allowed: it moves no value at runtime, and
+    _references already leaves annotations out.
+
+    An attribute load counts. `post = platform.publish_reply` is the same
+    smuggling written through the object instead of through the name, and the
+    Name-only version of this test could not see it.
     """
-    offenders = []
-    for path in _module_paths():
-        tree = _tree(path)
-        parents = _parents(tree)
-        annotated = {
-            id(inner)
-            for node in ast.walk(tree)
-            for field in ("annotation", "returns")
-            for outer in [getattr(node, field, None)]
-            if outer is not None
-            for inner in ast.walk(outer)
-        }
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Name) or node.id != name:
-                continue
-            if id(node) in annotated:
-                continue
-            parent = parents.get(id(node))
-            if isinstance(parent, ast.Call) and parent.func is node:
-                continue
-            offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+    offenders = [
+        _where(path, node)
+        for path, node, tree in _references(name)
+        if not _is_called(node, _parents(tree))
+    ]
     assert offenders == [], f"{name} is used as a value rather than called: {offenders}"
 
 
-def test_the_prompt_loop_carries_no_else_branch_at_all() -> None:
+# Every reference to the three anchors, as file:function, frozen. Set equality
+# rather than a bound, so that a reference appearing anywhere new fails until
+# somebody writes it down here in the same diff. The old tests asked "is each one
+# I can see in the right place", which is a question that answers itself when the
+# thing that got added is a shape they cannot see.
+REVIEWED_REFERENCES = {
+    PUBLISH_METHOD: ["approve.py:_send_approved"],
+    SEND_FUNCTION: ["approve.py:approve_and_publish", "approve.py:approve_and_publish"],
+    APPROVAL_TYPE: ["approve.py:approve_and_publish", "approve.py:approve_and_publish"],
+}
+
+
+@pytest.mark.parametrize("name", sorted(REVIEWED_REFERENCES))
+def test_the_package_inventory_of_each_anchor_is_the_reviewed_list(name: str) -> None:
+    found = sorted(
+        f"{path.relative_to(PACKAGE_ROOT)}:{_enclosing_function(node, _parents(tree)) or '<module>'}"
+        for path, node, tree in _references(name)
+    )
+    assert found == sorted(REVIEWED_REFERENCES[name]), (
+        f"the places {name} is reached from have changed: {found}"
+    )
+
+
+def test_the_prompt_loop_carries_no_else_branch_and_no_conditional_expression() -> None:
     """There is no default action, and the shape of the code is what says so.
 
     Every branch in the loop is a positive test against one named key. An `else`
     is by definition reached by every key that did not match, which is every key
     a resting finger produces, Enter first among them. Adding one is a deliberate
     act and this is the test that makes it one.
+
+    `a if b else c` is banned in the same breath and for the same reason. It is
+    an else by another spelling, it is an ast.IfExp rather than an ast.If, and
+    `pressed = SEND_KEY if settled else _press(stream, scripted)` walked straight
+    through the version of this test that collected only ast.If.
     """
     tree = _tree(GATE)
-    (loop,) = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "approve_and_publish"
+    loop = _gate_function(tree)
+    assert loop is not None, f"{GATE_FUNCTION} is gone from the gate"
+    offenders = [
+        f"{type(node).__name__} at line {node.lineno}"
+        for node in ast.walk(loop)
+        if (isinstance(node, ast.If) and node.orelse) or isinstance(node, ast.IfExp)
     ]
-    offenders = [node.lineno for node in ast.walk(loop) if isinstance(node, ast.If) and node.orelse]
-    assert offenders == [], f"approve_and_publish grew an else at line(s) {offenders}"
+    assert offenders == [], f"{GATE_FUNCTION} grew a default action: {offenders}"
+
+
+def test_the_branch_that_sends_compares_a_value_the_prompt_produced() -> None:
+    """The provenance anchor itself, asserted rather than assumed.
+
+    Every structural test above is satisfied vacuously if no name in the loop
+    can be traced back to _press: _tests_a_key_constant would return False
+    everywhere, _guarding_branch would find nothing, and a test that only
+    collected offenders would report none. So the set has to be non-empty, and
+    the branches that guard the sends have to be built out of it.
+    """
+    assert _keystroke_names(_tree(GATE)), (
+        f"no name in {GATE_FUNCTION} is bound exactly once from a direct call to "
+        f"{PRESS_FUNCTION}, so nothing compared against a key constant is a keystroke"
+    )
+    unguarded = [
+        _where(path, node)
+        for path, node, tree in _references(SEND_FUNCTION) + _references(APPROVAL_TYPE)
+        if _guarding_branch(node, _parents(tree), _keystroke_names(tree)) is None
+    ]
+    assert unguarded == [], f"a send is not guarded by a branch reading a keystroke: {unguarded}"
+
+
+def test_the_provenance_rule_rejects_a_comparison_that_reads_no_key(tmp_path: Path) -> None:
+    """The guard is only worth having if it catches the thing it was written for.
+
+    All three of these pass the old rule, which asked only that some operand be
+    a Name in KEY_CONSTANTS. None of them reads a key from a person.
+    """
+    for body in (
+        "    if _autopilot(cfg) == SEND_KEY:\n        _send_approved()\n",
+        '    if "y" == SEND_KEY:\n        _send_approved()\n',
+        "    pressed = SEND_KEY\n    if pressed == SEND_KEY:\n        _send_approved()\n",
+    ):
+        source = f"def {GATE_FUNCTION}():\n{body}"
+        module = tmp_path / "loop.py"
+        module.write_text(source, encoding="utf-8")
+        tree = ast.parse(source, filename=str(module))
+        keystroke = _keystroke_names(tree)
+        branches = [node for node in ast.walk(tree) if isinstance(node, ast.If)]
+        assert branches, source
+        assert not any(_tests_a_key_constant(node, keystroke) for node in branches), (
+            f"this reads no key and the rule accepted it:\n{source}"
+        )
+
+    # And the real shape still passes, so the rule is not simply always false.
+    source = (
+        f"def {GATE_FUNCTION}():\n"
+        f"    pressed = {PRESS_FUNCTION}(stream, scripted)\n"
+        "    if pressed == SEND_KEY:\n        _send_approved()\n"
+    )
+    tree = ast.parse(source, filename="loop.py")
+    branches = [node for node in ast.walk(tree) if isinstance(node, ast.If)]
+    assert any(_tests_a_key_constant(node, _keystroke_names(tree)) for node in branches)
+
+
+def test_a_name_rebound_after_the_prompt_carries_no_provenance(tmp_path: Path) -> None:
+    """Bound exactly once is the load bearing half. A name that came from _press
+    and was then reassigned is a name whose value at the comparison is whatever
+    the second assignment put there."""
+    source = (
+        f"def {GATE_FUNCTION}():\n"
+        f"    pressed = {PRESS_FUNCTION}(stream, scripted)\n"
+        "    pressed = SEND_KEY\n"
+        "    if pressed == SEND_KEY:\n        _send_approved()\n"
+    )
+    tree = ast.parse(source, filename="loop.py")
+    assert _keystroke_names(tree) == frozenset()
+
+
+def test_no_caller_in_the_package_supplies_the_gate_a_seam() -> None:
+    """The cheapest bypass in the repo was one keyword argument in cmd_publish.
+
+    out, edit and now are real parameters with real defaults, because the suite
+    drives the whole loop through them rather than mocking the prompt away. That
+    is fine for a test and not fine for shipped code: a caller that passes its
+    own `edit` is answering a question it also asked. So the keywords an
+    in-package caller may use are an allowlist, and it does not include them.
+    """
+    seen = 0
+    offenders = []
+    for path in _module_paths():
+        for node in ast.walk(_tree(path)):
+            if not isinstance(node, ast.Call) or _called_name(node) != GATE_FUNCTION:
+                continue
+            seen += 1
+            if any(keyword.arg is None for keyword in node.keywords):
+                offenders.append(f"{_where(path, node)}: **kwargs")
+            extra = {keyword.arg for keyword in node.keywords if keyword.arg} - GATE_CALL_KEYWORDS
+            if extra:
+                offenders.append(f"{_where(path, node)}: {sorted(extra)}")
+    assert seen, f"nothing under src/ calls {GATE_FUNCTION}; the publish path is gone"
+    assert offenders == [], f"a caller under src/ hands the gate its own answer: {offenders}"
+
+
+def test_no_module_but_the_gate_names_the_scripted_keystroke_seam() -> None:
+    """The seam the suite drives the loop with, sealed against installed code.
+
+    Checked as text rather than as an AST node, because reaching it by name at
+    all is the offence: setattr(approve, "_scripted_keys", ...) spells it as a
+    string, and a source edit that merely mentioned it would be the first half of
+    wiring it up.
+    """
+    offenders = [
+        str(path.relative_to(REPO_ROOT))
+        for path in _module_paths()
+        if path != GATE and SCRIPTED_SEAM in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], f"a module outside the gate names the keystroke seam: {offenders}"
+
+    # And it is still there to be sealed, rather than renamed out from under this.
+    assert SCRIPTED_SEAM in GATE.read_text(encoding="utf-8")
 
 
 # --- c. no config key and no flag can stand in for the keystroke ------------
@@ -437,9 +718,103 @@ BYPASS_SHAPES = [
     r"(force|always)[_-]?(send|publish|approve|post)",
     r"batch[_-]?(approve|publish|send|post)",
     r"bypass",
+    # Added after a review found that `pre_approved` matched none of the eleven
+    # shapes above and was the single key three separate reported bypasses used.
+    # It is also the exact idea APPROVAL.md rejects by name: approval expressed
+    # ahead of time, in a file, rather than as a keystroke against one reply.
+    r"(pre|already)[_-]?(approv(e|ed|al)|sent|publish(ed)?|confirm(ed)?|ok(ay|ed)?)",
+    r"(consent|approval|decision)[_-]?(file|column|field|source|from)",
 ]
 
 BYPASS_KEY = re.compile("|".join(BYPASS_SHAPES), re.IGNORECASE)
+
+# --- the allowlist, which is the half that survives a name nobody predicted ----
+#
+# The denylist above is kept, and it is the second signal rather than the first.
+# A review demonstrated why: it is eleven guesses at how somebody will spell an
+# idea, it missed `pre_approved`, and the fix for that is one more guess. What
+# APPROVAL.md item 3 actually asked for was that the config schema contain no key
+# that could bypass the prompt, "so adding one is a deliberate act that fails a
+# test", and only an allowlist makes adding ANY key the deliberate act.
+#
+# So the config vocabulary is frozen. Every section and every key the loader
+# declares, every key a shipped or fixture config carries, and the two keys the
+# [publish] table is made of. A new key of any name at all fails this until it is
+# written down here, in the diff that adds it, where a reviewer reads it next to
+# the reason.
+CONFIG_SCHEMA = frozenset(
+    {
+        "product",
+        "product.name",
+        "product.kind",
+        "product.price_text",
+        "product.purchase_link",
+        "product.escalation_contact",
+        "knowledge",
+        "knowledge.source",
+        "knowledge.path",
+        "voice",
+        "voice.rules",
+        "voice.examples",
+        "behavior",
+        "behavior.cta_mode",
+        "behavior.plug_cap",
+        "behavior.max_reply_sentences",
+        "behavior.bot_disclosure_text",
+        "behavior.plug_markers",
+        "behavior.separator",
+        "behavior.banned_emoji",
+        "behavior.platforms",
+        "model",
+        "model.label",
+        "model.base_url",
+        "model.model",
+        "model.api_key_env",
+        "model.params",
+        "model.params.enable_thinking",
+        "model.params.reasoning",
+        "model.params.reasoning.enabled",
+        "model.params.reasoning.effort",
+        "model.params.provider",
+        "model.params.provider.allow_fallbacks",
+        "model.params.provider.data_collection",
+        "model.pricing",
+        "model.pricing.input_per_mtok",
+        "model.pricing.output_per_mtok",
+        "model.pricing.cached_per_mtok",
+        "model.pricing.cache_write_per_mtok",
+        "cta",
+        "cta.direct",
+        "cta.direct.instruction",
+        "cta.direct.phrases",
+        "cta.bio_link",
+        "cta.bio_link.instruction",
+        "cta.bio_link.phrases",
+        "cta.bio_pointer",
+        "cta.bio_pointer.instruction",
+        "cta.bio_pointer.phrases",
+        "bakeoff",
+        "bakeoff.models",
+        "bakeoff.models.label",
+        "bakeoff.models.model",
+        "bakeoff.models.params",
+        "bakeoff.models.params.reasoning",
+        "bakeoff.models.params.reasoning.enabled",
+        "bakeoff.models.params.provider",
+        "bakeoff.models.params.provider.allow_fallbacks",
+        "bakeoff.models.params.provider.data_collection",
+        "bakeoff.models.pricing",
+        "bakeoff.models.pricing.input_per_mtok",
+        "bakeoff.models.pricing.output_per_mtok",
+        "bakeoff.models.pricing.cached_per_mtok",
+        "bakeoff.models.pricing.cache_write_per_mtok",
+        # Absent by default. A config with no [publish] table is a read only
+        # deployment, which is the recommended starting point.
+        "publish",
+        "publish.platform",
+        "publish.credential_env",
+    }
+)
 
 CONFIG_FILES = sorted(REPO_ROOT.glob("examples/*/config.toml")) + sorted(
     REPO_ROOT.glob("tests/fixtures/*/config.toml")
@@ -447,11 +822,15 @@ CONFIG_FILES = sorted(REPO_ROOT.glob("examples/*/config.toml")) + sorted(
 
 
 def _lookup_keys(tree: ast.Module):
-    """(line, key) for every string literal this module uses as a mapping key.
+    """(line, name) for every string literal this module reads a value out of.
 
     A setting nothing reads changes nothing, so a bypass flag has to be read
-    somewhere under src/ to do any harm. This finds the reading of it, in all
-    four shapes the package uses: subscript, .get, .setdefault and `in`.
+    somewhere under src/ to do any harm. This finds the reading of it.
+
+    Six shapes, not the four the mapping-only version had. os.getenv("auto_approve")
+    and getattr(args, "auto_approve", False) both read a setting and neither is a
+    mapping subscript, so an environment variable and a parsed argparse flag, which
+    are the two most natural places to put a bypass, went past unseen.
     """
     for node in ast.walk(tree):
         if isinstance(node, ast.Subscript):
@@ -459,7 +838,18 @@ def _lookup_keys(tree: ast.Module):
             if isinstance(index, ast.Constant) and isinstance(index.value, str):
                 yield node.lineno, index.value
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr in ("get", "setdefault", "pop") and node.args:
+            if node.func.attr in ("get", "setdefault", "pop", "getenv") and node.args:
+                first = node.args[0]
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    yield node.lineno, first.value
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            # getattr(args, "yes", False) reads a flag off the parsed namespace,
+            # and getenv/environ are the same idea through the process instead.
+            if node.func.id in ("getattr", "hasattr") and len(node.args) >= 2:
+                second = node.args[1]
+                if isinstance(second, ast.Constant) and isinstance(second.value, str):
+                    yield node.lineno, second.value
+            elif node.func.id == "getenv" and node.args:
                 first = node.args[0]
                 if isinstance(first, ast.Constant) and isinstance(first.value, str):
                     yield node.lineno, first.value
@@ -509,6 +899,70 @@ def test_the_declared_config_schema_holds_no_such_key() -> None:
     assert offenders == [], f"config.REQUIRED declares an approval bypass: {offenders}"
 
 
+def _declared_schema() -> set[str]:
+    from commentdraft.config import REQUIRED
+    from commentdraft.platforms import CREDENTIAL_KEY, PLATFORM_KEY, PUBLISH_SECTION
+
+    names = set(REQUIRED)
+    names |= {f"{section}.{key}" for section, keys in REQUIRED.items() for key in keys}
+    names |= {
+        PUBLISH_SECTION,
+        f"{PUBLISH_SECTION}.{PLATFORM_KEY}",
+        f"{PUBLISH_SECTION}.{CREDENTIAL_KEY}",
+    }
+    return names
+
+
+def _shipped_schema() -> set[str]:
+    names: set[str] = set()
+    for path in CONFIG_FILES:
+        names |= set(_toml_keys(tomllib.loads(path.read_text(encoding="utf-8"))))
+    names |= set(_toml_keys(tomllib.loads(MINIMAL_CONFIG_TOML)))
+    return names
+
+
+def test_the_config_vocabulary_is_exactly_the_reviewed_list() -> None:
+    """The allowlist, and the one that matters in a year.
+
+    Everything the denylist does is guess how somebody will spell an idea. It
+    guessed eleven ways and missed `pre_approved`, which is what three separate
+    reported bypasses used, and the repair for a missed guess is another guess.
+
+    This asks the opposite question. Here is the entire vocabulary of the config
+    format: every section and key the loader requires, the two the [publish]
+    table is made of, and every key the shipped examples and the suite's own
+    fixtures carry. A key of any name that is not on this list fails, whether it
+    is called auto_approve, pre_approved, or something nobody has thought of yet,
+    and the only way to add one is to write it down here where it gets read.
+
+    Set equality in both directions. A key that disappears from the schema and
+    stays on this list is a list rotting into decoration, which is exactly what
+    happened to the guard this replaces.
+    """
+    observed = _declared_schema() | _shipped_schema()
+    added = sorted(observed - CONFIG_SCHEMA)
+    dropped = sorted(CONFIG_SCHEMA - observed)
+    assert added == [], (
+        "the config format grew a key nobody reviewed. Approval is a keystroke "
+        f"against one reply and cannot be expressed in a file: {added}"
+    )
+    assert dropped == [], f"CONFIG_SCHEMA lists keys the config format no longer has: {dropped}"
+
+
+def test_the_allowlist_refuses_a_key_the_denylist_never_matched() -> None:
+    """The two guards, on the key that got past the one this replaces.
+
+    `pre_approved` is now on the denylist as well, but the point of this test is
+    the order of the arguments: the allowlist refuses it because it is not on the
+    list, which is a property of the mechanism rather than of anybody having
+    predicted the name.
+    """
+    unpredicted = "publish.pre_approved"
+    assert unpredicted not in CONFIG_SCHEMA
+    # And the denylist, second, now that it has been told about this one.
+    assert BYPASS_KEY.search("pre_approved")
+
+
 @pytest.mark.parametrize("path", CONFIG_FILES, ids=lambda p: str(p.relative_to(REPO_ROOT)))
 def test_no_shipped_config_carries_such_a_key(path: Path) -> None:
     """The examples are what an operator copies. A key demonstrated there is a
@@ -524,26 +978,48 @@ def test_the_config_the_suite_itself_uses_carries_no_such_key() -> None:
     assert offenders == [], f"the shared test config carries an approval bypass: {offenders}"
 
 
-def test_no_subcommand_offers_a_flag_that_could_stand_in_for_a_keystroke() -> None:
+def _parser_names(parser, path: str = ""):
+    """Every option string and positional dest in this parser and every one under it.
+
+    Recursive, and it starts at the top. The version this replaces iterated
+    subparsers.choices only, so `parser.add_argument("--yes", ...)` on the
+    top-level parser was never scanned, and `commentdraft --yes publish` is the
+    form an operator types first. It also assumed exactly one level of nesting,
+    which is a thing that stops being true the day a subcommand grows one.
+    """
+    import argparse
+
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, sub in action.choices.items():
+                yield from _parser_names(sub, f"{path}{name} ")
+            continue
+        for option in action.option_strings:
+            yield f"{path}{option}", option.lstrip("-")
+        if not action.option_strings and action.dest:
+            # A positional called `yes` is the same offence with the dashes off.
+            yield f"{path}{action.dest}", action.dest
+
+
+def test_no_command_offers_a_flag_that_could_stand_in_for_a_keystroke() -> None:
     """There is no --yes and no --all. Not defaulted off. Absent.
 
     A flag that exists is a flag somebody sets once, in a shell alias or a cron
     line, and forgets. The whole claim collapses the first time it is set on a
     machine nobody is watching, and nothing about the run afterwards looks wrong.
     """
-    import argparse
-
     from commentdraft.cli import build_parser
 
-    parser = build_parser()
-    (subparsers,) = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
-    offenders = []
-    for name, sub in subparsers.choices.items():
-        for action in sub._actions:
-            for option in action.option_strings:
-                if BYPASS_KEY.search(option.lstrip("-")):
-                    offenders.append(f"{name} {option}")
-    assert offenders == [], f"a subcommand offers an approval bypass flag: {offenders}"
+    names = list(_parser_names(build_parser()))
+    assert names, "the parser offers no arguments at all, so this test proves nothing"
+    assert any(shown == "-h" for shown, _ in names), (
+        "the top-level parser was not reached, which is where an operator types first"
+    )
+    assert any(shown.startswith("publish ") for shown, _ in names), (
+        "the publish subcommand was not reached"
+    )
+    offenders = [shown for shown, bare in names if BYPASS_KEY.search(bare)]
+    assert offenders == [], f"a command offers an approval bypass flag: {offenders}"
 
 
 def test_the_bypass_pattern_catches_the_keys_somebody_will_actually_reach_for() -> None:
@@ -580,6 +1056,18 @@ def test_the_bypass_pattern_catches_the_keys_somebody_will_actually_reach_for() 
         "always_send",
         "batch_approve",
         "bypass_approval",
+        # The one it missed. A review found that none of the eleven original
+        # shapes matched this, and that it was the key three separate reported
+        # bypasses reached for. The allowlist above is the durable answer; these
+        # are here so the second signal knows about it too.
+        "pre_approved",
+        "pre-approved",
+        "preapproved",
+        "already_approved",
+        "already_sent",
+        "preconfirmed",
+        "approval_file",
+        "decision_column",
     ):
         assert BYPASS_KEY.search(name), f"the bypass pattern misses {name!r}"
 
@@ -614,13 +1102,25 @@ def test_the_bypass_pattern_catches_the_keys_somebody_will_actually_reach_for() 
 # confined instead: only modules under platforms/ may hold one, so the gate, the
 # engine, the CLI and the review page still cannot reach a platform by any route,
 # and a reviewer auditing the network surface has one directory to read.
-BANNED_IMPORTS = {
+# Matched as dotted prefixes, not by exact name. `from urllib import request`
+# records module "urllib" and alias "request", which is a bare "urllib" under an
+# exact-match rule and passed; `from http import client` passed the same way. The
+# transport layer is on the list for the same reason: banning http.client while
+# leaving socket and ssl available bans one spelling of the capability.
+BANNED_IMPORT_PREFIXES = {
     "requests",
     "httpx",
     "aiohttp",
     "urllib3",
     "urllib.request",
+    "urllib.error",
     "http.client",
+    "socket",
+    "ssl",
+    "ftplib",
+    "smtplib",
+    "telnetlib",
+    "xmlrpc",
     "googleapiclient",
     "google_auth_oauthlib",
     "google.oauth2",
@@ -634,6 +1134,52 @@ BANNED_IMPORTS = {
     "praw",
 }
 
+# The other half of the test this inherited, which was dropped with no successor
+# while tests/test_generality.py went on describing the move as if both halves
+# had made it. An import is one way to reach an API and a hostname in a string is
+# the other, and the second one needs no dependency in pyproject.toml at all.
+BANNED_HOSTS = (
+    "googleapis.com",
+    "youtube.com",
+    "youtu.be",
+    "graph.facebook.com",
+    "facebook.com",
+    "instagram.com",
+    "tiktokapis.com",
+    "tiktok.com",
+    "api.twitter.com",
+    "twitter.com",
+    "reddit.com",
+    "bsky.social",
+    "linkedin.com",
+    "threads.net",
+)
+
+
+def _imported_names(tree: ast.Module):
+    """(line, dotted name) for every import, normalised so `from x import y` is x.y.
+
+    Both forms are yielded for an ImportFrom: the module on its own and the
+    module joined to each alias. `from urllib import request` has to be read as
+    urllib.request, and `from googleapiclient import discovery` has to stay
+    caught by the bare googleapiclient prefix.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node.lineno, alias.name
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            yield node.lineno, node.module
+            for alias in node.names:
+                yield node.lineno, f"{node.module}.{alias.name}"
+
+
+def _banned_import(name: str) -> str:
+    for prefix in BANNED_IMPORT_PREFIXES:
+        if name == prefix or name.startswith(prefix + "."):
+            return prefix
+    return ""
+
 
 def test_no_module_outside_the_connectors_can_reach_a_platform() -> None:
     """ui.py legitimately serves on localhost, so http.server and socketserver
@@ -643,17 +1189,65 @@ def test_no_module_outside_the_connectors_can_reach_a_platform() -> None:
     for path in _module_paths():
         if CONNECTORS in path.parents:
             continue
-        for node in ast.walk(_tree(path)):
-            if isinstance(node, ast.Import):
-                imported = [(node.lineno, alias.name) for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported = [(node.lineno, node.module)]
-            else:
-                continue
-            for line, name in imported:
-                if name in BANNED_IMPORTS:
-                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{line}: {name}")
+        for line, name in _imported_names(_tree(path)):
+            prefix = _banned_import(name)
+            if prefix:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{line}: {name} ({prefix})")
     assert offenders == [], f"a module outside platforms/ imports a network client: {offenders}"
+
+
+def test_the_import_rule_reads_a_from_import_as_the_dotted_name(tmp_path: Path) -> None:
+    """The exact-match hole, pinned. Both of these were legal under the old rule."""
+    module = tmp_path / "sneaky.py"
+    module.write_text("from urllib import request\nfrom http import client\n", encoding="utf-8")
+    tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+    caught = {_banned_import(name) for _, name in _imported_names(tree)} - {""}
+    assert caught == {"urllib.request", "http.client"}
+
+    # And the ordinary neighbours of both are still allowed, or the rule would
+    # ban the review page's own server and the URL parsing the engine does.
+    module.write_text(
+        "from urllib.parse import quote\nfrom http.server import ThreadingHTTPServer\n",
+        encoding="utf-8",
+    )
+    tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+    assert {_banned_import(name) for _, name in _imported_names(tree)} == {""}
+
+
+def test_no_module_outside_the_connectors_names_a_platform_host() -> None:
+    """The half that was dropped. A hostname in a string needs no dependency.
+
+    Scoped exactly like the import ban: a connector is a thing that talks to a
+    platform and has to name one, and nothing else in the package may. This is
+    what makes the network surface one directory a reviewer can read, rather than
+    one directory plus whatever a string literal reaches.
+    """
+    offenders = []
+    for path in _module_paths():
+        if CONNECTORS in path.parents:
+            continue
+        for node in ast.walk(_tree(path)):
+            if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                continue
+            lowered = node.value.casefold()
+            for host in BANNED_HOSTS:
+                if host in lowered:
+                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {host}")
+    assert offenders == [], f"a module outside platforms/ names a platform host: {offenders}"
+
+
+def test_the_host_rule_catches_a_hostname_in_a_literal(tmp_path: Path) -> None:
+    module = tmp_path / "hosty.py"
+    module.write_text('URL = "https://www.googleapis.com/youtube/v3/comments"\n', encoding="utf-8")
+    tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+    found = [
+        host
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        for host in BANNED_HOSTS
+        if host in node.value.casefold()
+    ]
+    assert "googleapis.com" in found
 
 
 # --- e and f, driven through the real loop ----------------------------------
