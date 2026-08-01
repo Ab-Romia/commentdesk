@@ -139,3 +139,9 @@ def _require_text(section: dict, key: str, hint: str) -> str:
     if isinstance(value, bool) or not isinstance(value, str) or not value.strip():
         raise PlatformError(f"{PUBLISH_SECTION}.{key} must be a non-empty string ({hint})")
     return value
+
+
+# Imported for the side effect of registering the built in connectors, on the same
+# convention as commentdraft.sources. The import sits at the bottom because the
+# module above defines the decorator they use, and the name is unused on purpose.
+from . import facebook  # noqa: E402,F401  imported for the side effect of registering
