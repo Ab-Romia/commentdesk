@@ -23,7 +23,8 @@ examples = "prompts/examples.md"
 cta_mode = "direct"
 # An alarm threshold, not a limiter. Nothing in the pipeline refuses to write a reply
 # because of this number. It is how you find out whether the voice file still holds
-# after you edit it.
+# after you edit it. The bake-off run in docs/bakeoff.md went over this exact number,
+# on two of three models, and every one of those runs finished and wrote every row.
 plug_cap = 0.75
 max_reply_sentences = 2
 bot_disclosure_text = "These replies are drafted with software and read by a person before they post."
@@ -66,6 +67,9 @@ api_key_env = "OPENROUTER_API_KEY"
 # table can go stale the day after it was checked. estimate_cost returns nothing
 # rather than zero when any of the four is absent, so a stale or partial table gives
 # you a blank cost column instead of a confident wrong number.
+# docs/bakeoff.md writes up a bake-off run billed at exactly these four rates and the
+# two entries at the bottom of this file. Change one and that write-up stops describing
+# what this config would now do.
 [model.pricing]
 input_per_mtok = 0.03
 cached_per_mtok = 0.006

@@ -47,6 +47,11 @@ a plug," which reports a plug rate of zero on a run that could hold any true rat
 all, and a failure that reads as a clean run is the one this project is least willing
 to ship.
 
+Measured rather than asserted: in the bake-off run written up in `docs/bakeoff.md`, two
+of the three models came in at 13 of 16 replies against the example config's `plug_cap`
+of 0.75. The report said `OVER plug_cap 0.75` on both, and both runs then finished
+normally, wrote every row, and rewrote nothing.
+
 ## `load_config` validates shape and never content
 
 A wrong price, a dead purchase link, a stale contact name, and a knowledge document
@@ -161,6 +166,11 @@ as `docs/writing-a-voice.md` describes, and it is a mitigation rather than a fix
 the same reason: the property being asked for is a fact about the whole batch, and
 nothing in a stateless, one-call-per-comment design can see the whole batch while any
 one reply is being written.
+
+Measured rather than asserted: in the bake-off run written up in `docs/bakeoff.md`, the
+default model closed 13 of its 16 replies on the identical purchase link and opened 6
+of them on the identical word. `find_repetition` named every row in the run report.
+Nothing prevented any of it, because nothing in this design could have.
 
 Take this one seriously even though nothing here is unsafe in the way a wrong price
 is: several platforms demote near-identical comments as spam, and a demoted comment

@@ -92,7 +92,7 @@ covers the two-pass substitution that resolves them and why `{{cta_phrase_1}}`,
 | `model` | yes | the model identifier your gateway expects |
 | `api_key_env` | yes | the name of an environment variable holding the API key, never the key itself |
 | `params` | yes, a table | extra request parameters, sent through unread. `params.provider.data_collection` must be `"deny"`, nested inside `provider`; `docs/platform-policy.md` and `docs/bakeoff.md` both explain why the nesting is what is actually checked. |
-| `pricing` | no | `input_per_mtok`, `cached_per_mtok` and `output_per_mtok` together, plus an optional `cache_write_per_mtok`. Missing or incomplete, `estimate_cost` returns nothing rather than a wrong number, and the cost column in your CSV stays blank rather than showing a fabricated zero. |
+| `pricing` | no | `input_per_mtok`, `cached_per_mtok` and `output_per_mtok` together, plus an optional `cache_write_per_mtok`. Missing or incomplete, `estimate_cost` returns nothing rather than a wrong number, and the cost column in your CSV stays blank rather than showing a fabricated zero. Every rate you write here is a dated observation, never a quote; `docs/bakeoff.md` measures what one set of them did to one real bill and says how fast that goes stale. |
 
 `api_key_env` names a variable read from the real environment or from a `.env` file
 next to `config.toml`; a value already exported in your shell always wins over the

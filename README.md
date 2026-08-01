@@ -73,11 +73,26 @@ commentdesk review out/review.csv --out out
 
 `run` writes `out/review.csv` and prints a run report: how many replies, skips and
 escalates, what the run cost, and which drafts repeat each other. `review` turns the
-CSV into `out/review.html`. Open it and you get one table, one row per comment, with
-the decision, the reason, the draft reply and the model that produced it, plus one
-cost total for the whole file rather than a column of per-row figures in front of a
-reviewer. The page carries a draft banner until you pass `--approved`, which you pass
-after reading every row and not before:
+CSV into `out/review.html`, which is the page below.
+
+![The review page, headed "Reply review", with a red DRAFT, NOT APPROVED banner across the top reading "Every reply below was drafted by software and has been approved by nobody. Read each one, edit what needs editing, and take editorial responsibility for it before it goes anywhere." Under the banner, the file heading "review-primary", a tally line reading "30 comments: escalate=5, reply=16, skip=9", and a cost line reading "total cost: $0.0012 (1 of 30 rows carry no cost figure)". Below those, a table with columns for number, platform, author, context, comment, decision, reason, reply, model and error, showing the first seven rows: real drafted replies about mushrooms, price, praise, an edibility question, a Spanish translation request deflected to the team, a price objection answered without defending the price, and a beginner safety question.](docs/img/review-page.png)
+
+One table, one row per comment, carrying the decision, the reason, the draft reply and
+the model that wrote it, plus one cost total for the whole file rather than a column of
+per-row figures in front of a reviewer; the per-row token counts and costs stay in the
+CSV underneath.
+
+Nothing on that page is mocked up. It was written by
+`commentdesk review out/bakeoff/review-primary.csv --out out/bakeoff` from a real run
+against this repository's own field guide example, which is why its heading reads
+`review-primary` rather than `review`: the page names each input file by its stem, and
+`commentdesk bakeoff` writes one CSV per model label. `docs/bakeoff.md` writes that run
+up in full, against three models, with the results that did not flatter alongside the
+one that did. The two commands above give you the same page from `out/review.csv`,
+headed `review`, carrying whatever your own run measured.
+
+The banner stays until you pass `--approved`, which you pass after reading every row
+and not before:
 
 ```bash
 commentdesk review out/review.csv --out out --approved
@@ -181,7 +196,7 @@ this tool talks to.
 | `docs/comments-csv.md` | the input CSV: every column, which are required, and what happens to the rest |
 | `docs/writing-a-voice.md` | writing your rules and examples, in your language, placeholder by placeholder |
 | `docs/sources.md` | adding a knowledge source handler |
-| `docs/bakeoff.md` | comparing models blind, and one parameter that lies |
+| `docs/bakeoff.md` | comparing models blind, one measured run against the example, and one parameter that lies |
 | `docs/platform-policy.md` | which clause each safety property exists for |
 | `docs/limits.md` | what this cannot do, stated before you find out |
 
@@ -267,6 +282,10 @@ plan around any figure here.
 Cost per row is computed from the token counts the API actually returned, never from
 an estimate, and it is left blank rather than set to zero when pricing is incomplete.
 Blank is the truth. Zero is a claim.
+
+The one set of measured figures this repository publishes is in `docs/bakeoff.md`: one
+bake-off run against the shipped example on 2026-08-01, three models, with the command
+that reproduces it and the same dating rule applied to every number in it.
 
 ## Where this came from
 

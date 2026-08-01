@@ -8,10 +8,11 @@ and then feeling confident is a way to be wrong slowly, and the failures that ma
 here (an invented price, a claim your source document contradicts) are not the ones a
 general benchmark measures.
 
-This page carries no results table. No figure here has been re-measured against the
-fictional example products in this repository, and a number carried over from
-somewhere else is worse than no number at all. Measure your own, write the date next
-to it, and re-verify anything you read below before you rely on it.
+One measured run is written up below, against the fictional field guide that ships in
+this repository, so every figure on this page resolves to a command you can run
+yourself rather than to a number carried over from somewhere else. It is one run, on
+one example, on one day, and it is dated for that reason. Measure your own, write the
+date next to it, and re-verify anything you read here before you rely on it.
 
 ## Setting it up
 
@@ -36,6 +37,10 @@ model = "othervendor/other-model"
 params = { provider = { data_collection = "deny" } }
 pricing = { input_per_mtok = 0.1, cached_per_mtok = 0.01, output_per_mtok = 0.4 }
 ```
+
+The model names and the rates in that block are placeholders showing the shape, not
+any real route's prices. The rates a real run was actually billed at are further down,
+with their date.
 
 A `[[bakeoff.models]]` entry inherits **only** the gateway keys, `base_url` and
 `api_key_env`. It does not inherit `pricing` and it does not inherit `params`. That is
@@ -100,12 +105,145 @@ change scores, and you will not notice yourself doing it.
    embarrassing. An invented price, an invented delivery promise, or a claim the
    source document contradicts is a cost that lands on a real person, not on you.
 
-Two things worth knowing before you start. First, the cost spread across a plausible
-field of models is usually small next to the time a person spends reviewing each run,
-so cost is rarely the deciding variable; measure it anyway and decide with your eyes
-open rather than assuming. Second, a templated feel across a batch is usually a
-prompt problem rather than a model problem: `docs/writing-a-voice.md` explains which
-part of the prompt causes it and what reduces it.
+Two things worth knowing before you start. First, be careful which cost you are
+comparing. The absolute amounts across a plausible field of models are usually small
+next to the time a person spends reviewing a run, so cost alone is rarely the deciding
+variable; the ratio between two entries is a different number entirely and it can be
+large, as the run below measured. Look at both and decide with your eyes open rather
+than assuming either. Second, a templated feel across a batch is usually a prompt
+problem rather than a model problem: `docs/writing-a-voice.md` explains which part of
+the prompt causes it and what reduces it.
+
+## One measured run, 2026-08-01
+
+Run from the repository root, against the field guide example:
+
+```bash
+commentdesk bakeoff --config examples/field-guide-book/config.toml \
+  --comments examples/field-guide-book/comments.csv --out out/bakeoff
+```
+
+Thirty comments in the file, twenty-nine billed calls. One comment is empty, and an
+empty comment is decided locally as `skip` with no call and no cost, so it counts in
+the decisions and in neither the cache nor the cost figures. The cached prefix measured
+4,162 tokens.
+
+The totals, the cache lines and the decision counts below were read out of the run
+report each model printed. The per-call column is the only derived figure on the page:
+it is each total divided by the twenty-nine calls that were billed.
+
+| label | model id | total cost | per billed call | cache hits | decisions |
+|---|---|---|---|---|---|
+| `primary` | `qwen/qwen3.7-flash` | $0.0012 | $0.000040 | 28/29 | escalate 5, reply 16, skip 9 |
+| `cheap` | `deepseek/deepseek-chat` | $0.0318 | $0.001095 | 0/29 | escalate 5, reply 16, skip 9 |
+| `small` | `mistralai/mistral-small-3.2-24b-instruct` | $0.0093 | $0.000320 | 0/29 | escalate 4, reply 16, skip 10 |
+
+The rates those totals were computed from, USD per million tokens, read from the
+gateway's own live model list that day and written into
+`examples/field-guide-book/config.toml` with the same date beside them:
+
+| label | input | cached input | output | cache write |
+|---|---|---|---|---|
+| `primary` | 0.03 | 0.006 | 0.13 | 0.038 |
+| `cheap` | 0.2574 | 0.0 | 1.0287 | 0.0 |
+| `small` | 0.075 | 0.0 | 0.2 | 0.0 |
+
+### What the cost column actually measured
+
+The entry labelled `cheap` cost about 27 times more per comment than the default did.
+Its input rate is 8.6 times the default's and its output rate 7.9 times, so the
+published rates on their own predict a gap somewhere near 8, not near 27. The rest of
+the gap is the prompt cache.
+
+The prefix dominates the bill on every call here: 4,162 tokens of rendered voice rules,
+worked examples, output contract and the whole knowledge document, against a user
+message holding one comment and a reply of a sentence or two. `primary` billed that
+prefix at the cached rate of 0.006 on 28 of its 29 calls. `cheap` and `small` billed it
+at their full input rate on all 29, because neither route served it from a cache at all.
+
+That is the argument in `docs/architecture.md` arriving as a measurement rather than an
+assertion. The prefix is assembled once and kept byte-identical across a run
+specifically so a provider can serve it from cache, and on this run that property was
+worth more than the difference in sticker price between these three routes. One piece
+of arithmetic on the same two rates, offered as arithmetic and not as a second
+measurement: 4,162 tokens billed at 0.03 rather than 0.006 is about $0.0001 more per
+call, so this run priced entirely uncached at `primary`'s own published input rate
+would have cost roughly three times what it did. Three is larger than the 2.5 between
+`primary`'s input rate and `small`'s.
+
+Read that narrowly. It is one run, one example product, one gateway, one day. A route
+that adds cached input pricing, drops it, or changes what it charges to write a cache
+entry moves this column further than these three models differ from each other, and
+none of those changes announces itself.
+
+### The results that do not flatter
+
+Two of the three went over the alarm threshold the example config sets. The report
+line, identical for `primary` and `cheap`:
+
+```
+plugs: 13/16 replies contain a configured plug marker OVER plug_cap 0.75
+```
+
+`small` came in at 11 of 16, under the cap. Nothing stopped, nothing was rewritten and
+no row was dropped on either of the two that went over, because `plug_cap` is an alarm
+threshold and never a limiter. This run is the demonstration rather than the claim: the
+rate exceeded the number and the run finished exactly as it would have otherwise. What
+holds the rate down is the rule in the voice file, and `docs/limits.md` covers what the
+substring test behind that number can and cannot see.
+
+`primary`'s report carried both repetition flags as well:
+
+```
+repetition: closing 'https://example.com/field-guide' repeats in rows 1, 2, 3, 4, 7, 9, 22, 23, 24, 25, 26, 28, 30
+repetition: opening 'It' repeats in rows 4, 7, 22, 25, 26, 28
+```
+
+Thirteen of its sixteen replies ended on the same pointer, and six of them opened on
+the same word. The plug line and the closing line report 13 for one reason: the
+configured plug marker is that same URL, so both are counting the same behavior from
+two sides.
+
+This is the limit `docs/limits.md` states under "Repetition can be reported but not
+prevented", and it is structural rather than a tuning problem. Each comment is answered
+by a separate call carrying no memory of any other call in the run, so the model writing
+the last reply cannot know how it ended the first, and no instruction in the prompt can
+enforce a rule about a set the model was never shown. `find_repetition` rereads the
+whole batch once the run is over and names the rows, so a person can break them up
+before anything is sent. This run is evidence that the limit is real and that the
+detector works, in that order.
+
+Both of those belong here at the same size as the cost finding. A results section that
+reports only the flattering measurement is not evidence, it is advertising.
+
+### Triage agreed, and that is thinner evidence than it looks
+
+All three produced 16 replies. `primary` and `cheap` produced identical counts across
+all three decisions, and `small` differed by one, with one fewer escalate and one more
+skip.
+
+What that supports: none of the three collapsed into answering everything or escalating
+everything. Both are real failure modes, and ruling them out for a tenth of a dollar is
+worth the run on its own.
+
+What it does not support: that the three agreed comment by comment. These are totals,
+and two models can produce identical totals while disagreeing about which comments they
+apply to. This run recorded no per-row comparison, so what agreed here is the counts,
+not demonstrably the decisions. It also says nothing about any of them being right: a
+comment every model reads the same wrong way looks exactly like agreement, and there is
+no ground truth anywhere in these tables. Cost and counts are the half of a bake-off a
+machine can measure. The blind page is the other half, and no figure above replaces
+scoring it.
+
+### The caveat that applies to every figure above
+
+Point-in-time observations from 2026-08-01: thirty comments, one fictional example
+product, one gateway, three routes, one run each, no repeats and no scoring pass.
+Providers change prices and change routing without notice and without a version number,
+so a figure that was true on the date beside it can be wrong by the time you read it.
+The rates are copied into `examples/field-guide-book/config.toml` carrying the same
+date; if they have moved since, the totals above moved with them and nothing in this
+repository will notice. Re-run the command before you rely on any of it.
 
 ## A parameter that lies
 
@@ -169,5 +307,11 @@ count, how many scoring passes were run, and who scored them. Date every figure.
 one currency and do not convert others into it: an exchange rate and a model's price
 are two separately aging numbers, and multiplying them produces a figure that looks
 more precise than either input and is wrong twice.
+
+"One measured run" above is the shape to copy, including the part that is easy to skip:
+it reports the two results that made this project look bad next to the one that made it
+look good, at the same size and in the same detail. Write yours the same way. The
+purpose of measuring is to find out, and a page of only good news is proof that
+somebody stopped looking.
 
 [promptfoo]: https://github.com/promptfoo/promptfoo

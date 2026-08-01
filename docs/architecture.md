@@ -49,6 +49,15 @@ Two honest notes about caching:
 - Editing your config, your voice file, or your knowledge document changes the
   prefix, which makes the next call cold. That is normal and it is not a bug report.
 
+Measured once, and only once. `docs/bakeoff.md` writes up a bake-off run on 2026-08-01
+against the field guide example, in which a 4,162 token prefix was served from cache on
+28 of 29 calls on the default route and on none at all on the two others. Per comment,
+the default came out about 8 times under one of those routes and about 27 times under
+the other, on published rates whose difference was much smaller than either figure. The
+first note above is visible in the same table: one call in twenty-nine was cold. That
+is this section measured rather than asserted, and it is one run on one example on one
+day, so read the caveat that ships with it before carrying the numbers anywhere.
+
 ## Why there is no retrieval
 
 Retrieval exists to fit a corpus that does not fit the window. It buys that at the

@@ -97,23 +97,46 @@ def test_sources_doc_documents_every_registered_source():
     assert "refuses to overwrite" in text
 
 
-def test_bakeoff_doc_carries_no_unmeasured_figures():
-    """No table and no quoted numbers until they are re-measured.
+def test_bakeoff_doc_publishes_measured_figures_that_carry_their_date():
+    """This test used to assert the opposite, and was right to.
 
-    The method is publishable now. Any specific figure is not, because none has been
-    measured against the example products in this repository.
+    Until a bake-off had actually been run against the example products in this
+    repository, the method was publishable and no specific figure was, so this
+    asserted that the page held no table and no dollar amount. A run against
+    examples/field-guide-book on 2026-08-01 changed the fact, so the test pins the
+    new one rather than being deleted: the figures are on the page, the command that
+    reproduces them is on the page, and so is the date they were true on.
     """
     text = read_doc("bakeoff.md")
     table_lines = [line for line in text.splitlines() if line.strip().startswith("|")]
-    assert table_lines == [], "bakeoff.md must not carry a results table yet"
+    assert table_lines, "bakeoff.md carries a measured run; it needs its results table"
+    assert re.search(r"\$\s*\d", text), "the measured costs are the point of the section"
+    # A figure with no date next to it is what this page has always refused to print.
+    assert "2026-08-01" in text, "a published figure has to carry the date it was true on"
     assert "re-verify" in text
+    assert "Re-run the command before you rely on any of it." in text
+    # Reproducible means a reader can run it, which means the command stays on the page.
+    assert "commentdesk bakeoff --config examples/field-guide-book/config.toml" in text
     assert "data_collection" in text
     assert "blind" in text
-    # Prices and token counts are the figures that must not appear before measurement.
-    assert not re.search(r"\$\s*\d", text), "a dollar figure appears before measurement"
-    assert not re.search(r"\b\d[\d,]*\s*(tokens|ms|seconds)\b", text), (
-        "a measured quantity appears before measurement"
-    )
+
+
+def test_bakeoff_doc_reports_the_results_that_did_not_flatter():
+    """A results section holding only the good news is marketing, not evidence.
+
+    The run measured three things worth publishing and only one of them is a
+    compliment: the cached prefix made the default route far cheaper per comment,
+    the plug rate went over the config's own alarm threshold on two of three models,
+    and the default closed most of its replies on the identical pointer. The second
+    and third are the ones an author is tempted to quietly drop on the next edit, so
+    they are the ones pinned here.
+    """
+    text = read_doc("bakeoff.md")
+    assert "OVER plug_cap 0.75" in text, "the run that exceeded its own alarm threshold"
+    assert "repetition: closing" in text, "the repetition find_repetition reported"
+    # Both are already documented as known limits. The write-up has to say so rather
+    # than presenting either as a surprise, because a reader who checks will find them.
+    assert "docs/limits.md" in text
 
 
 def test_comments_csv_doc_names_every_column_the_engine_reads():
