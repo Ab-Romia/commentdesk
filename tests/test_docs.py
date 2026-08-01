@@ -139,6 +139,27 @@ def test_bakeoff_doc_reports_the_results_that_did_not_flatter():
     assert "docs/limits.md" in text
 
 
+def test_bakeoff_doc_records_the_scoring_pass_including_how_first_place_was_decided():
+    """The page prescribes blind scoring, so the page has to report its own.
+
+    Three parts of that write-up are the ones that would quietly improve on a later
+    edit, so they are pinned here. The finding against `small` is a specific row and
+    a specific decision rather than an impression. First place went to `primary` on
+    cost after two sources tied on quality, which is not a quality ranking and must
+    not start reading like one. And the pass is thinner than the method section a
+    few screens up asks of a reader, which is a thing to say out loud in the results
+    rather than to leave for a reader to work out.
+    """
+    # Line breaks are wrapping, not content, so the assertions read the prose flat.
+    flat = " ".join(read_doc("bakeoff.md").split())
+    assert "One scorer, one pass." in flat
+    assert "`primary` first, `cheap` second, `small` third" in flat
+    assert "Do you ship to Canada and how long does it take?" in flat
+    assert "First place was decided on cost, not on quality." in flat
+    assert "two tied and one below them" in flat
+    assert "asks more of you than it demonstrates itself" in flat
+
+
 def test_comments_csv_doc_names_every_column_the_engine_reads():
     """The input CSV was documented nowhere. config.toml, the voice files and the
     knowledge document each had a complete reference page; the one file an operator

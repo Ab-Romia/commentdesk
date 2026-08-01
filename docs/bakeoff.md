@@ -245,12 +245,64 @@ not demonstrably the decisions. It also says nothing about any of them being rig
 comment every model reads the same wrong way looks exactly like agreement, and there is
 no ground truth anywhere in these tables. Cost and counts are the half of a bake-off a
 machine can measure. The blind page is the other half, and no figure above replaces
-scoring it.
+scoring it. The next section is that pass.
+
+### The blind scoring pass, 2026-08-01
+
+One scorer, the author of this repository. One pass over the blind page the command
+above produces. The ranking that came out of it: `primary` first, `cheap` second,
+`small` third.
+
+`primary` and `cheap` were judged indistinguishable on reply quality across all thirty
+comments. Nothing in this pass separates them.
+
+`small` was ranked below both for one specific reason, on one row. Row 8 is the comment
+"Do you ship to Canada and how long does it take?". `primary` and `cheap` both
+escalated it. `small` skipped it, and its own recorded reason shows it had read the
+situation correctly before choosing:
+
+```
+shipping question that has to be deflected, the deflection is the whole reply and the pointer is dropped
+```
+
+A skip writes no draft and routes the comment to nobody, so the person who asked gets
+silence. An escalation writes no draft either, but it sends the comment to the person
+who can answer it. That is a triage failure with a real reader on the other end, not a
+matter of style, and it is the only thing this pass held against `small`; everything
+else about its output was acceptable. The counts above show `small` with one fewer
+escalate and one more skip, and this row is a difference of exactly that shape. Whether
+it is the only one is not something this pass established, for the reason the section
+above gives.
+
+**First place was decided on cost, not on quality.** The scorer judged `primary` and
+`cheap` equal on their replies and broke the tie with the cost totals, which the blind
+page was printing per source at the time. It should not have been: cost identifies a
+source, the totals for these three are published further up this page, and the whole
+point of the blind page is that the scorer does not know which source is which. That
+was a defect in the page and it is fixed, which is why the section on running a
+bake-off now says a blind page prints no cost. So the quality result from this pass is
+two tied and one below them. The ordering inside the tie is a cost decision made after
+the fact, written down here as one, and it is not a quality ranking.
+
+### What the scoring pass does not establish
+
+One scorer, one pass. Point 4 of the method above asks for a second person to re-check
+the winner adversarially, hunting specifically for invented facts. That did not happen
+here. Point 3 asks for scores across five named dimensions, accuracy, triage
+correctness, brevity, rule compliance and how templated the batch feels, rather than
+one overall feeling. That did not happen either: this pass produced a ranking and one
+finding, not thirty rows of five scores.
+
+So this document currently asks more of you than it demonstrates itself. The pass is
+real and it found a real defect in one of the three models, which is more than any
+table above can do. It is also thinner than the method it sits under, and that gap
+belongs in the results section rather than left for a reader to work out.
 
 ### The caveat that applies to every figure above
 
 Point-in-time observations from 2026-08-01: thirty comments, one fictional example
-product, one gateway, three routes, one run each, no repeats and no scoring pass.
+product, one gateway, three routes, one run each, no repeats, and one scoring pass by
+one scorer with the limits that pass names for itself.
 Providers change prices and change routing without notice and without a version number,
 so a figure that was true on the date beside it can be wrong by the time you read it.
 The rates are copied into `examples/field-guide-book/config.toml` carrying the same
