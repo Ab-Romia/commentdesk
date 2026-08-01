@@ -234,7 +234,12 @@ def test_facebook_platform_guide_keeps_the_admissions_that_make_it_worth_reading
     assert "Unpublished." in flat
 
 
-PLATFORM_GUIDES = sorted((DOCS / "platforms").glob("*.md"))
+# index.md is the map of this directory rather than a guide to a platform. It documents
+# no API, so it has nothing of its own to verify and no connector to deny, and the
+# assertions below would be asking it to restate eight other pages. Everything else in
+# the directory is a platform guide and is covered. A second non-guide page would need
+# adding here on purpose, which is the point: the default is that a new page is covered.
+PLATFORM_GUIDES = sorted(p for p in (DOCS / "platforms").glob("*.md") if p.name != "index.md")
 
 
 def _section_after(text: str, heading_matches) -> str | None:
