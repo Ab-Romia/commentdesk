@@ -13,7 +13,7 @@ needs to learn the new name.
 from collections.abc import Callable
 from pathlib import Path
 
-from commentdesk.config import resolve_path
+from commentdraft.config import resolve_path
 
 
 class SourceError(Exception):

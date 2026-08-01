@@ -124,7 +124,7 @@ def test_every_displayed_badge_resolves(text):
     and the license alike, and there was no package for it to read. A front page whose
     own badges report the package missing is a bad first thirty seconds.
 
-    commentdesk 0.1.0 is published, so the PyPI badge is back in the row. What this
+    commentdraft 0.1.0 is published, so the PyPI badge is back in the row. What this
     still guards is the shape of the failure rather than that one moment: a badge shown
     without a link definition renders as literal broken markdown, and the row is easy to
     edit without noticing. HTML comments are stripped first, so a commented-out badge
@@ -144,17 +144,17 @@ def test_every_displayed_badge_resolves(text):
 
 def test_the_install_section_leads_with_something_that_works_today(text):
     """The first command a reader meets has to be one they can run. Before the first
-    release that was the git URL, because `uv tool install commentdesk` had nothing to
-    install and the section led with it anyway. commentdesk is published now, so the
+    release that was the git URL, because `uv tool install commentdraft` had nothing to
+    install and the section led with it anyway. commentdraft is published now, so the
     short form leads and the git URL stays for running an unreleased change.
 
     The invariant outlives either state: whatever the first fenced block says, a reader
     who copies it gets a working install."""
     section = _section(text, "## Install", "## The whole thing")
     blocks = _bash_blocks(section)
-    assert "uv tool install commentdesk\n" in blocks[0]
+    assert "uv tool install commentdraft\n" in blocks[0]
     # Kept, because it is the only way to run something that is not released yet.
-    assert "git+https://github.com/Ab-Romia/commentdesk.git" in blocks[-1]
+    assert "git+https://github.com/Ab-Romia/commentdraft.git" in blocks[-1]
 
 
 def test_the_env_example_documents_the_variable_and_not_a_value():
@@ -191,7 +191,7 @@ def test_readme_screenshot_target_directory_exists():
 
 # --- The quickstart is not prose about a command. It is a command. ---------------
 #
-# Everything below parses the actual `commentdesk ...` lines out of the walkthrough
+# Everything below parses the actual `commentdraft ...` lines out of the walkthrough
 # and either runs them for real (offline, against the shipped example, with a fake
 # model client) or feeds them to the real argument parser. A flag that got renamed
 # in the code and never updated here is exactly the kind of drift that makes a
@@ -209,8 +209,8 @@ def _bash_blocks(section: str) -> list[str]:
     return blocks
 
 
-def _commentdesk_invocations(block: str) -> list[list[str]]:
-    """Every `commentdesk ...` line in a code block, tokenized, minus the program name.
+def _commentdraft_invocations(block: str) -> list[list[str]]:
+    """Every `commentdraft ...` line in a code block, tokenized, minus the program name.
 
     Trailing `# comment` text is stripped first: several lines in the walkthrough
     carry an explanatory comment after the real command.
@@ -218,7 +218,7 @@ def _commentdesk_invocations(block: str) -> list[list[str]]:
     invocations = []
     for raw_line in block.splitlines():
         line = raw_line.split(" #", 1)[0].rstrip()
-        if line.strip().startswith("commentdesk "):
+        if line.strip().startswith("commentdraft "):
             tokens = shlex.split(line)
             invocations.append(tokens[1:])
     return invocations
@@ -252,15 +252,15 @@ class _FakeCompletions:
 
 
 def test_readme_quickstart_invocations_parse_as_real_cli_commands(text):
-    """Every commentdesk command shown between the two headings must be one the
+    """Every commentdraft command shown between the two headings must be one the
     real argument parser accepts. This is what catches a renamed or removed flag
     that the prose never got updated to match.
     """
-    from commentdesk.cli import HANDLERS, build_parser
+    from commentdraft.cli import HANDLERS, build_parser
 
     section = _section(text, "## The whole thing, end to end", "## Three concepts")
     invocations = [
-        argv for block in _bash_blocks(section) for argv in _commentdesk_invocations(block)
+        argv for block in _bash_blocks(section) for argv in _commentdraft_invocations(block)
     ]
     assert len(invocations) >= 6, "expected run, review (x2), chat, ui, ingest and bakeoff"
 
@@ -278,18 +278,18 @@ def test_readme_run_and_review_commands_actually_produce_the_files_they_claim(
     client. If `--out` ever stopped meaning "a directory" and `review.html`
     stopped being the fixed filename inside it, this fails.
     """
-    from commentdesk import cli
+    from commentdraft import cli
 
     section = _section(text, "## The whole thing, end to end", "## Three concepts")
     blocks = _bash_blocks(section)
 
-    quickstart_invocations = _commentdesk_invocations(blocks[0])
+    quickstart_invocations = _commentdraft_invocations(blocks[0])
     assert len(quickstart_invocations) == 2, "expected exactly a run and a review command"
     run_argv, review_argv = quickstart_invocations
     assert run_argv[0] == "run"
     assert review_argv[0] == "review"
 
-    (approved_argv,) = _commentdesk_invocations(blocks[1])
+    (approved_argv,) = _commentdraft_invocations(blocks[1])
     assert approved_argv[0] == "review"
     assert "--approved" in approved_argv
 

@@ -1,7 +1,7 @@
 # Comparing models
 
-`commentdesk bakeoff` runs the same comments through your `[model]` plus every
-`[[bakeoff.models]]` entry, one CSV per label, and `commentdesk review --blind` turns
+`commentdraft bakeoff` runs the same comments through your `[model]` plus every
+`[[bakeoff.models]]` entry, one CSV per label, and `commentdraft review --blind` turns
 those CSVs into one page with the sources hidden behind letters and a key file
 returned separately. It exists because choosing a model by reading a benchmark table
 and then feeling confident is a way to be wrong slowly, and the failures that matter
@@ -63,7 +63,7 @@ on a route you did not mean to use.
 ## Running it
 
 ```bash
-commentdesk bakeoff --config config.toml --comments comments.csv --out out
+commentdraft bakeoff --config config.toml --comments comments.csv --out out
 ```
 
 This writes one CSV per model into `out/` (`out/review-primary.csv`,
@@ -72,7 +72,7 @@ report per model, and finishes by writing `out/bakeoff-blind_key.json`, a letter
 label mapping, plus the exact command to run next. Do not open that key file yet.
 
 ```bash
-commentdesk review out/review-primary.csv out/review-challenger.csv --blind
+commentdraft review out/review-primary.csv out/review-challenger.csv --blind
 ```
 
 This is the command `bakeoff` printed for you; run it as given rather than retyping it,
@@ -131,7 +131,7 @@ the prompt causes it and what reduces it.
 Run from the repository root, against the field guide example:
 
 ```bash
-commentdesk bakeoff --config examples/field-guide-book/config.toml \
+commentdraft bakeoff --config examples/field-guide-book/config.toml \
   --comments examples/field-guide-book/comments.csv --out out/bakeoff
 ```
 
@@ -338,8 +338,8 @@ To check your own route, run the same comment through two configs that differ on
 which reasoning switch is set, and compare the CSVs:
 
 ```bash
-commentdesk run --config with-native-flag.toml --comments one-comment.csv --out out/a
-commentdesk run --config with-gateway-flag.toml --comments one-comment.csv --out out/b
+commentdraft run --config with-native-flag.toml --comments one-comment.csv --out out/a
+commentdraft run --config with-gateway-flag.toml --comments one-comment.csv --out out/b
 ```
 
 Read `completion_tokens` and `cost_usd` in each `review.csv`. A route worth trusting
@@ -347,8 +347,8 @@ shows the same number either way. Keep both flags set together once you know you
 answer: the provider-native one costs nothing when it is honored and nothing when it
 is ignored, and it helps the moment a route starts honoring it.
 
-Write both yourself, in every model table that turns reasoning off. `commentdesk run`
-and `commentdesk bakeoff` send your `params` through to the request verbatim and add
+Write both yourself, in every model table that turns reasoning off. `commentdraft run`
+and `commentdraft bakeoff` send your `params` through to the request verbatim and add
 nothing to them; `config.with_reasoning` is the only thing in the package that sets
 the pair for you, and its only caller is the reasoning checkbox on the local test
 page. So the tool sets both when you toggle reasoning in the ui, and in a batch run

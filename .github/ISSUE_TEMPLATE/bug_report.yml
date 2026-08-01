@@ -13,7 +13,7 @@ body:
       label: What happened
       description: What you ran, and what came back.
       placeholder: |
-        commentdesk run --config config.toml --comments comments.csv --out out
+        commentdraft run --config config.toml --comments comments.csv --out out
     validations:
       required: true
   - type: textarea
@@ -25,8 +25,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: commentdesk version
-      description: Output of `commentdesk --version`
+      label: commentdraft version
+      description: Output of `commentdraft --version`
     validations:
       required: true
   - type: input

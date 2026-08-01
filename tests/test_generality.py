@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
-from commentdesk.config import load_config
-from commentdesk.engine import DECISIONS, OUT_FIELDS, read_comments, run_pipeline
-from commentdesk.prompt import KNOWLEDGE_TAG, render_system_text
-from commentdesk.sanitize import find_repetition, is_plug, sanitize_reply
-from commentdesk.sources import load_knowledge
+from commentdraft.config import load_config
+from commentdraft.engine import DECISIONS, OUT_FIELDS, read_comments, run_pipeline
+from commentdraft.prompt import KNOWLEDGE_TAG, render_system_text
+from commentdraft.sanitize import find_repetition, is_plug, sanitize_reply
+from commentdraft.sources import load_knowledge
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC = ROOT / "src" / "commentdesk"
+SRC = ROOT / "src" / "commentdraft"
 OTHER_LANGUAGE = ROOT / "tests" / "fixtures" / "nazzef-kit-ar"
 
 PRODUCTS = {

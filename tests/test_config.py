@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from commentdesk.config import (
+from commentdraft.config import (
     ConfigError,
     load_config,
     load_env,
@@ -225,7 +225,7 @@ def test_a_product_value_must_be_a_non_empty_string(tmp_path: Path, key: str, li
 
 
 def test_resolve_path_is_relative_to_the_config_not_the_shell(tmp_path: Path) -> None:
-    """`commentdesk run --config examples/x/config.toml` has to work from anywhere."""
+    """`commentdraft run --config examples/x/config.toml` has to work from anywhere."""
     config_dir = tmp_path / "examples" / "field-guide"
     config_dir.mkdir(parents=True)
     assert resolve_path(config_dir, "knowledge.md") == config_dir / "knowledge.md"
@@ -349,23 +349,23 @@ def test_load_env_does_not_overwrite_an_exported_variable(tmp_path: Path, monkey
     That is how a run is pointed at a different key without editing the file
     holding the real one.
     """
-    monkeypatch.setenv("COMMENTDESK_TEST_KEY", "from-the-shell")
+    monkeypatch.setenv("COMMENTDRAFT_TEST_KEY", "from-the-shell")
     env = tmp_path / ".env"
-    env.write_text("COMMENTDESK_TEST_KEY=from-the-file\n", encoding="utf-8")
+    env.write_text("COMMENTDRAFT_TEST_KEY=from-the-file\n", encoding="utf-8")
     load_env(env)
-    assert os.environ["COMMENTDESK_TEST_KEY"] == "from-the-shell"
+    assert os.environ["COMMENTDRAFT_TEST_KEY"] == "from-the-shell"
 
 
 def test_load_env_reads_a_key_the_shell_does_not_have(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("COMMENTDESK_OTHER_KEY", raising=False)
+    monkeypatch.delenv("COMMENTDRAFT_OTHER_KEY", raising=False)
     env = tmp_path / ".env"
     env.write_text(
-        "# a comment\n\n  COMMENTDESK_OTHER_KEY = from-the-file  \nnot-an-assignment\n",
+        "# a comment\n\n  COMMENTDRAFT_OTHER_KEY = from-the-file  \nnot-an-assignment\n",
         encoding="utf-8",
     )
     load_env(env)
-    assert os.environ["COMMENTDESK_OTHER_KEY"] == "from-the-file"
-    monkeypatch.delenv("COMMENTDESK_OTHER_KEY")
+    assert os.environ["COMMENTDRAFT_OTHER_KEY"] == "from-the-file"
+    monkeypatch.delenv("COMMENTDRAFT_OTHER_KEY")
 
 
 def test_load_env_on_a_missing_file_is_a_no_op(tmp_path: Path) -> None:
@@ -376,12 +376,12 @@ def test_load_env_on_a_missing_file_is_a_no_op(tmp_path: Path) -> None:
 
 
 def test_load_env_keeps_an_equals_sign_inside_the_value(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("COMMENTDESK_PADDED_KEY", raising=False)
+    monkeypatch.delenv("COMMENTDRAFT_PADDED_KEY", raising=False)
     env = tmp_path / ".env"
-    env.write_text("COMMENTDESK_PADDED_KEY=abc=def==\n", encoding="utf-8")
+    env.write_text("COMMENTDRAFT_PADDED_KEY=abc=def==\n", encoding="utf-8")
     load_env(env)
-    assert os.environ["COMMENTDESK_PADDED_KEY"] == "abc=def=="
-    monkeypatch.delenv("COMMENTDESK_PADDED_KEY")
+    assert os.environ["COMMENTDRAFT_PADDED_KEY"] == "abc=def=="
+    monkeypatch.delenv("COMMENTDRAFT_PADDED_KEY")
 
 
 # --- cta_mode ---------------------------------------------------------------
@@ -479,7 +479,7 @@ def test_bot_disclosure_text_is_required(tmp_path: Path) -> None:
 
 def test_bot_disclosure_has_no_off_switch() -> None:
     """There is no mode name to configure, because the evasive mode is gone."""
-    from commentdesk import config
+    from commentdraft import config
 
     source = Path(config.__file__).read_text(encoding="utf-8")
     assert "deflect" not in source

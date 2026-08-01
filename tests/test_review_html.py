@@ -2,7 +2,7 @@
 import re
 from html.parser import HTMLParser
 
-from commentdesk.render.review_html import (
+from commentdraft.render.review_html import (
     blind_label,
     label_paths,
     load_row_sets,

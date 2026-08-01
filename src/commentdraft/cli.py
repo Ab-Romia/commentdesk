@@ -175,7 +175,7 @@ def _triage(args, *, bakeoff: bool) -> int:
         # in this order reproduces exactly this key rather than a second one that
         # disagrees with it.
         print(
-            "review them blind with:\n  commentdesk review "
+            "review them blind with:\n  commentdraft review "
             + " ".join(str(p) for p in written)
             + " --blind"
         )
@@ -331,7 +331,7 @@ def _common(parser, out_default="out", out_help="output directory"):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="commentdesk",
+        prog="commentdraft",
         description="Triage comments and draft replies. It never posts anything.",
     )
     subs = parser.add_subparsers(dest="command")

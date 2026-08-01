@@ -2,8 +2,8 @@
 import csv
 import types
 
-from commentdesk import cli
-from commentdesk.engine import EMPTY_COMMENT_REASON, OUT_FIELDS
+from commentdraft import cli
+from commentdraft.engine import EMPTY_COMMENT_REASON, OUT_FIELDS
 
 CONFIG = """
 [product]

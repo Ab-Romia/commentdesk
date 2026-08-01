@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from commentdesk.config import load_config
-from commentdesk.engine import IN_FIELDS, read_comments
-from commentdesk.prompt import KNOWLEDGE_TAG, render_system_text
-from commentdesk.sources import load_knowledge
+from commentdraft.config import load_config
+from commentdraft.engine import IN_FIELDS, read_comments
+from commentdraft.prompt import KNOWLEDGE_TAG, render_system_text
+from commentdraft.sources import load_knowledge
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELD_GUIDE = ROOT / "examples" / "field-guide-book"

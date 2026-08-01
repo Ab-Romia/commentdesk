@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from commentdesk.cli import format_trace, main, safe_name
+from commentdraft.cli import format_trace, main, safe_name
 
 CONFIG = """
 [product]
@@ -120,7 +120,7 @@ def test_every_subcommand_offers_only_the_flags_it_reads():
     two of the six never read the one they were given: cmd_review never looks at
     args.config and cmd_ui never looks at args.out. Both still showed up in --help,
     which offers an operator a flag that changes nothing about what happens."""
-    from commentdesk.cli import build_parser
+    from commentdraft.cli import build_parser
 
     parser = build_parser()
     takes = {
@@ -375,7 +375,7 @@ def test_ui_subcommand_wires_config_and_port_through_and_never_an_address(tmp_pa
     on the network that sent `Host: localhost`, so the subcommand no longer offers a
     way to name one and serve keeps its loopback default.
     """
-    from commentdesk import ui
+    from commentdraft import ui
 
     calls = []
     monkeypatch.setattr(

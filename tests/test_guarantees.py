@@ -112,6 +112,6 @@ def test_checker_flags_a_non_ascii_fstring_part(tmp_path: Path) -> None:
 
 def test_checker_passes_clean_source(tmp_path: Path) -> None:
     module = tmp_path / "clean.py"
-    module.write_text('"""Fine."""\n\nNAME = "commentdesk"\nCOUNT = 3\n', encoding="utf-8")
+    module.write_text('"""Fine."""\n\nNAME = "commentdraft"\nCOUNT = 3\n', encoding="utf-8")
 
     assert non_ascii_literals(module.read_text(encoding="utf-8"), str(module)) == []

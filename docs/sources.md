@@ -9,7 +9,7 @@ point. There is no plugin manifest, no entry point scan, and no lifecycle.
 SOURCES: dict[str, Callable[[Path, dict], str]]
 ```
 
-The registry lives in `src/commentdesk/sources/__init__.py`. It holds the `SOURCES`
+The registry lives in `src/commentdraft/sources/__init__.py`. It holds the `SOURCES`
 dict above, the `register(name)` decorator that fills it, `load_knowledge(cfg,
 config_dir)`, which reads `[knowledge]` and dispatches to the named handler, and
 `SourceError`, which every handler should raise instead of anything else.
@@ -75,16 +75,16 @@ transcript = "knowledge.md"
 Behind an optional extra:
 
 ```bash
-uv tool install "commentdesk[pdf]"
+uv tool install "commentdraft[pdf]"
 ```
 
 This one differs from `text` in an important way: it is a one time conversion, not a
-per run reader. You run `commentdesk ingest` once to produce a text file, you read
+per run reader. You run `commentdraft ingest` once to produce a text file, you read
 that file yourself, and every run after that reads the text file, never the PDF
 again.
 
 ```bash
-commentdesk ingest --config config.toml --pdf field-guide.pdf --out knowledge.md
+commentdraft ingest --config config.toml --pdf field-guide.pdf --out knowledge.md
 ```
 
 Reading and transcribing are two different paths through `path`, and that is worth
@@ -177,9 +177,9 @@ def load_subtitles(path: Path, options: dict) -> str:
     return "".join(parts)
 ```
 
-Save that as, say, `src/commentdesk/sources/subtitles.py`. The `@register("subtitles")`
+Save that as, say, `src/commentdraft/sources/subtitles.py`. The `@register("subtitles")`
 call above only runs once Python imports the module, and nothing imports it yet, so
-you have to add it to the bottom of `src/commentdesk/sources/__init__.py`:
+you have to add it to the bottom of `src/commentdraft/sources/__init__.py`:
 
 ```python
 from . import pdf_vision, subtitles, text  # noqa: E402,F401  imported for the side effect of registering

@@ -10,7 +10,7 @@ row may enter it.
 import re
 from pathlib import Path
 
-from commentdesk.config import ConfigError, resolve_path
+from commentdraft.config import ConfigError, resolve_path
 
 # The element the knowledge document is wrapped in. The operator's voice file
 # names this tag in the rule that binds every factual claim to the source, so it

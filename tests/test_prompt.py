@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
-from commentdesk.config import ConfigError
-from commentdesk.prompt import (
+from commentdraft.config import ConfigError
+from commentdraft.prompt import (
     KNOWLEDGE_TAG,
     OUTPUT_CONTRACT,
     build_mapping,

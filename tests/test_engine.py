@@ -4,9 +4,9 @@ import types
 
 import pytest
 
-from commentdesk import engine
-from commentdesk.config import ConfigError
-from commentdesk.engine import (
+from commentdraft import engine
+from commentdraft.config import ConfigError
+from commentdraft.engine import (
     DECISIONS,
     EMPTY_COMMENT_REASON,
     IN_FIELDS,
@@ -574,7 +574,7 @@ def test_run_one_returns_the_whole_trace():
 
 
 def test_run_one_leaves_the_cost_blank_rather_than_a_false_zero_on_a_rejected_key():
-    # Same defect as I-3, on the path commentdesk chat and the local UI share: a
+    # Same defect as I-3, on the path commentdraft chat and the local UI share: a
     # permanent failure reports no usage at all, and pricing that zero usage against
     # a real rate table yields a confident, false $0.00 for a call that was never
     # billed anything because it never happened. Blank is the truth. Zero is a claim.

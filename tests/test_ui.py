@@ -14,7 +14,7 @@ import threading
 
 import pytest
 
-from commentdesk import ui
+from commentdraft import ui
 
 # The keys run_one puts in a trace, plus the one /api/reply adds. The page reads
 # trace values as t.<key>, and the test below holds the page to this list.
@@ -254,7 +254,7 @@ def test_serve_refuses_to_bind_anywhere_but_loopback(tmp_path):
     """Refused rather than warned about. A warning printed into a terminal nobody is
     watching does not stop the knowledge document being served to the network, and
     the bind address is half of the two controls that do."""
-    from commentdesk.config import ConfigError
+    from commentdraft.config import ConfigError
 
     with pytest.raises(ConfigError) as excinfo:
         ui.serve(tmp_path / "config.toml", host="0.0.0.0")
@@ -267,7 +267,7 @@ def test_the_ui_subcommand_offers_no_way_to_ask_for_another_address():
     """The flag that made the finding reachable in one word. Removed rather than
     documented, so this asserts the parser rejects it rather than that help text
     warns about it."""
-    from commentdesk.cli import build_parser
+    from commentdraft.cli import build_parser
 
     parser = build_parser()
     assert parser.parse_args(["ui", "--port", "9000"]).port == 9000

@@ -3,7 +3,7 @@
 
 import pytest
 
-from commentdesk.report import build_report, estimate_cost
+from commentdraft.report import build_report, estimate_cost
 
 PRICING = {
     "input_per_mtok": 1.0,

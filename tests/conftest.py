@@ -11,7 +11,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = REPO_ROOT / "src"
-PACKAGE_ROOT = SRC_ROOT / "commentdesk"
+PACKAGE_ROOT = SRC_ROOT / "commentdraft"
 
 # A complete, valid config for a fictional product. Tests that need an invalid one
 # edit a copy of this string, so a test never asserts against a config that quietly
@@ -54,7 +54,7 @@ phrases = ["the link is in the bio", "you will find it in the profile"]
 label = "primary"
 base_url = "https://gateway.invalid/api/v1"
 model = "vendor/model-a"
-api_key_env = "COMMENTDESK_API_KEY"
+api_key_env = "COMMENTDRAFT_API_KEY"
 
 [model.pricing]
 input_per_mtok = 0.32

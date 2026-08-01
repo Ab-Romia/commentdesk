@@ -1,4 +1,4 @@
-# commentdesk
+# commentdraft
 
 Triage social-media comments from a CSV and draft grounded replies for a person to send.
 
@@ -7,7 +7,7 @@ Triage social-media comments from a CSV and draft grounded replies for a person 
 [![Python][python-badge]][python-link]
 [![License][license-badge]][license-link]
 
-> **The one thing to know before anything else.** commentdesk never publishes.
+> **The one thing to know before anything else.** commentdraft never publishes.
 > It reads a CSV, writes a page of drafts, and exits. Sending a reply is a person's
 > job, done by hand, after reading it. There is no code path that posts, and you can
 > check that with grep in about four seconds.
@@ -32,8 +32,8 @@ Python 3.11 or newer, and an API key for any OpenAI-compatible chat endpoint.
 ## Install
 
 ```bash
-uv tool install commentdesk
-uv tool install "commentdesk[pdf]"
+uv tool install commentdraft
+uv tool install "commentdraft[pdf]"
 ```
 
 The second adds the PDF knowledge source, which is an optional extra because it
@@ -43,7 +43,7 @@ works the same way if you would rather not use uv.
 To run an unreleased change, install from the repository instead:
 
 ```bash
-uv tool install git+https://github.com/Ab-Romia/commentdesk.git
+uv tool install git+https://github.com/Ab-Romia/commentdraft.git
 ```
 
 ## The whole thing, end to end
@@ -52,12 +52,12 @@ The repository ships a worked example: a fictional foraging field guide, with it
 knowledge file, its voice file, its worked examples, and a small comment file.
 
 ```bash
-git clone https://github.com/Ab-Romia/commentdesk.git
-cd commentdesk/examples/field-guide-book
+git clone https://github.com/Ab-Romia/commentdraft.git
+cd commentdraft/examples/field-guide-book
 
 export OPENROUTER_API_KEY="your key"      # or whatever [model].api_key_env names
-commentdesk run    --config config.toml --comments comments.csv --out out
-commentdesk review out/review.csv --out out
+commentdraft run    --config config.toml --comments comments.csv --out out
+commentdraft review out/review.csv --out out
 ```
 
 `run` writes `out/review.csv` and prints a run report: how many replies, skips and
@@ -84,14 +84,14 @@ saying the drafts were approved by nobody, and it stays until you pass the flag,
 you pass after reading every row and not before:
 
 ```bash
-commentdesk review out/review.csv --out out --approved
+commentdraft review out/review.csv --out out --approved
 ```
 
 Two more things you will want on day one:
 
 ```bash
-commentdesk chat --config config.toml    # one comment at a time, with the full trace
-commentdesk ui   --config config.toml    # the same, in a page on 127.0.0.1 only
+commentdraft chat --config config.toml    # one comment at a time, with the full trace
+commentdraft ui   --config config.toml    # the same, in a page on 127.0.0.1 only
 ```
 
 Both send one comment through the exact code a batch run uses and show the decision,
@@ -102,8 +102,8 @@ on a full run.
 And two you will want once:
 
 ```bash
-commentdesk ingest  --config config.toml --pdf book.pdf --out knowledge.md
-commentdesk bakeoff --config config.toml --comments comments.csv --out out
+commentdraft ingest  --config config.toml --pdf book.pdf --out knowledge.md
+commentdraft bakeoff --config config.toml --comments comments.csv --out out
 ```
 
 ## Three concepts, and no fourth
@@ -134,7 +134,7 @@ the two English examples above. `docs/writing-a-voice.md` is the chapter to read
 
 Every comment and the whole knowledge document travel to whichever endpoint
 `[model].base_url` names, as part of the request that drafts a reply. That is the one
-place your data leaves the machine running commentdesk.
+place your data leaves the machine running commentdraft.
 
 `load_config` refuses to start a run unless every model entry, the default one and
 every `[[bakeoff.models]]` entry alike, sets `params.provider.data_collection = "deny"`
@@ -161,7 +161,7 @@ this tool talks to.
 - **It does not retrieve.** The whole knowledge document goes into the cached prompt
   prefix. That is the right answer while the document fits the context window and the
   wrong one afterwards. `docs/architecture.md` says where the line is.
-- **It does not evaluate models in general.** `commentdesk bakeoff` runs your own
+- **It does not evaluate models in general.** `commentdraft bakeoff` runs your own
   comments through several models and builds a blind judging page. That is the whole
   feature. If you want an evaluation harness with datasets, assertions and CI gates,
   use [promptfoo][promptfoo]. It is the right tool for that job and this is not trying
@@ -191,7 +191,7 @@ this tool talks to.
 
 ## What this does, and what it does not do
 
-commentdesk drafts. It does not send, schedule, queue, or hold a credential for
+commentdraft drafts. It does not send, schedule, queue, or hold a credential for
 anywhere a draft could be sent. Every draft leaves this tool as a row in a CSV and a
 card on an HTML page, and the only way one reaches an audience is a person reading it
 and choosing to send it.
@@ -218,11 +218,11 @@ You supply the source document. Everything a draft states as fact comes from it,
 which makes it the single most important input and the one this project has the
 least ability to check.
 
-By pointing commentdesk at a document you confirm that you have the right to use it
+By pointing commentdraft at a document you confirm that you have the right to use it
 this way: that you own it, licensed it, or are otherwise permitted to send its
 contents to the model provider you have configured. The tool does not check
 ownership, licensing, copyright status, or whether the document contains personal
-data, and it cannot. commentdesk includes, distributes, and licenses no book, course,
+data, and it cannot. commentdraft includes, distributes, and licenses no book, course,
 or other work of its own; the example products in this repository are fictional,
 written for this project, and not a real product for you to reuse.
 
@@ -300,12 +300,12 @@ runs.
 
 Apache-2.0. See `LICENSE` and `NOTICE`.
 
-[ci-badge]: https://github.com/Ab-Romia/commentdesk/actions/workflows/ci.yml/badge.svg
-[ci-link]: https://github.com/Ab-Romia/commentdesk/actions/workflows/ci.yml
-[pypi-badge]: https://img.shields.io/pypi/v/commentdesk.svg
-[pypi-link]: https://pypi.org/project/commentdesk/
+[ci-badge]: https://github.com/Ab-Romia/commentdraft/actions/workflows/ci.yml/badge.svg
+[ci-link]: https://github.com/Ab-Romia/commentdraft/actions/workflows/ci.yml
+[pypi-badge]: https://img.shields.io/pypi/v/commentdraft.svg
+[pypi-link]: https://pypi.org/project/commentdraft/
 [python-badge]: https://img.shields.io/badge/python-3.11%2B-blue.svg
-[python-link]: https://github.com/Ab-Romia/commentdesk/blob/main/pyproject.toml
+[python-link]: https://github.com/Ab-Romia/commentdraft/blob/main/pyproject.toml
 [license-badge]: https://img.shields.io/badge/license-Apache--2.0-blue.svg
-[license-link]: https://github.com/Ab-Romia/commentdesk/blob/main/LICENSE
+[license-link]: https://github.com/Ab-Romia/commentdraft/blob/main/LICENSE
 [promptfoo]: https://github.com/promptfoo/promptfoo

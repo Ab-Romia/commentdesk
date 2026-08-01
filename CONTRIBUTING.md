@@ -7,8 +7,8 @@ they were never told.
 ## Setup
 
 ```bash
-git clone https://github.com/Ab-Romia/commentdesk.git
-cd commentdesk
+git clone https://github.com/Ab-Romia/commentdraft.git
+cd commentdraft
 uv sync --all-extras
 make check
 ```

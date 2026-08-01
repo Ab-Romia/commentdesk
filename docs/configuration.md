@@ -62,7 +62,7 @@ What to write inside the two files they name is the whole subject of
 | `plug_markers` | yes, non-empty list | the exact substrings `is_plug` looks for, case-insensitively, to decide a reply mentions your product; see `docs/limits.md` for why an empty list is refused rather than defaulted |
 | `separator` | yes, non-empty string | what `sanitize_reply` substitutes for every em dash and en dash it strips out of a draft |
 | `banned_emoji` | yes | one string of characters to strip from every draft; an empty string `""` is a valid value meaning "ban nothing" |
-| `platforms` | no | a list of platform names used only to pre-fill the platform picker in `commentdesk chat` and `commentdesk ui`. Omit it and both still work; the picker just starts empty. |
+| `platforms` | no | a list of platform names used only to pre-fill the platform picker in `commentdraft chat` and `commentdraft ui`. Omit it and both still work; the picker just starts empty. |
 
 ## `[cta.<name>]`
 
@@ -100,7 +100,7 @@ file, so pointing a run at a different key never means editing `.env`.
 
 ## `[[bakeoff.models]]`
 
-Optional, and only read by `commentdesk bakeoff`. Each entry needs its own `label`,
+Optional, and only read by `commentdraft bakeoff`. Each entry needs its own `label`,
 `model` and `params`, with the same `data_collection = "deny"` rule as `[model]`.
 Every entry inherits only `base_url` and `api_key_env` from `[model]`, never
 `pricing`, on purpose. `docs/bakeoff.md` is the full chapter on this table, including

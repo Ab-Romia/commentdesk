@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
-from commentdesk.sources import SOURCES, SourceError, load_knowledge, register
-from commentdesk.sources.text import load_text
+from commentdraft.sources import SOURCES, SourceError, load_knowledge, register
+from commentdraft.sources.text import load_text
 
 
 @pytest.fixture

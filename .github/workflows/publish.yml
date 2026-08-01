@@ -29,7 +29,7 @@ jobs:
     # A protected environment is what puts a human approval in front of an upload.
     environment:
       name: release
-      url: https://pypi.org/p/commentdesk
+      url: https://pypi.org/p/commentdraft
     permissions:
       # Scoped to this job only. It is what trusted publishing exchanges for an
       # upload token, which is why no secret is stored anywhere.

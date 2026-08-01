@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from commentdesk.sanitize import find_repetition, is_plug
+from commentdraft.sanitize import find_repetition, is_plug
 
 # Without all three, the call cannot be priced at all.
 REQUIRED_PRICING = ("input_per_mtok", "cached_per_mtok", "output_per_mtok")

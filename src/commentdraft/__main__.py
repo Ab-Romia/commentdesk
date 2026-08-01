@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Support `python -m commentdesk`, with the same exit codes as the script."""
+"""Support `python -m commentdraft`, with the same exit codes as the script."""
 
 import sys
 

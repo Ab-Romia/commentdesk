@@ -52,7 +52,7 @@ def render_pages(pdf, dpi=150):
         import pymupdf
     except ImportError as exc:
         raise SourceError(
-            'rendering a PDF needs the pdf extra: uv tool install "commentdesk[pdf]"'
+            'rendering a PDF needs the pdf extra: uv tool install "commentdraft[pdf]"'
         ) from exc
     doc = pymupdf.open(Path(pdf))
     try:
@@ -140,7 +140,7 @@ def load_pdf_vision(path, options):
     path = Path(path)
     transcript = path.parent / (options.get("transcript") or path.with_suffix(".md").name)
     if not transcript.exists():
-        raise SourceError(f"{transcript} not found: run 'commentdesk ingest' to transcribe {path}")
+        raise SourceError(f"{transcript} not found: run 'commentdraft ingest' to transcribe {path}")
     # Written by this tool as UTF-8, then corrected by hand in whatever editor the
     # operator has, which is where a re-save in a legacy encoding gets in.
     return read_utf8(transcript)

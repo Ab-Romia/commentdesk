@@ -195,14 +195,14 @@ runs and two configs. That is a real limitation and it is written down in
 
 ## Trying an edit before you spend on a full run
 
-`commentdesk chat` and `commentdesk ui` both send one comment through the exact code a
+`commentdraft chat` and `commentdraft ui` both send one comment through the exact code a
 batch run uses, decision, sanitizing, cost, and all, without reading a CSV or writing
 one. That makes either of them the fast loop for testing an edit to `voice.md` or
 `examples.md`: change a rule, send the comment that rule was supposed to fix, and read
 the result in seconds instead of waiting on a batch.
 
 ```bash
-commentdesk chat --config config.toml --platform youtube
+commentdraft chat --config config.toml --platform youtube
 ```
 
 `chat` runs in the terminal. It prints the raw model output before parsing, the
@@ -212,7 +212,7 @@ look again after the fact. That file holds the whole request, knowledge document
 included, which is exactly why `out/` is not committed.
 
 ```bash
-commentdesk ui --config config.toml
+commentdraft ui --config config.toml
 ```
 
 `ui` is the same idea on a page served on `127.0.0.1` only; see `SECURITY.md` for

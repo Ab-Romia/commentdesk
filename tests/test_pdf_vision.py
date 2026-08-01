@@ -12,7 +12,7 @@ import types
 
 import pytest
 
-from commentdesk.sources import SourceError, pdf_vision
+from commentdraft.sources import SourceError, pdf_vision
 
 
 class FakeClient:
@@ -133,15 +133,15 @@ def test_rendering_without_pymupdf_names_the_extra(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "pymupdf", None)
     with pytest.raises(SourceError) as excinfo:
         pdf_vision.render_pages(tmp_path / "doc.pdf")
-    assert "commentdesk[pdf]" in str(excinfo.value)
+    assert "commentdraft[pdf]" in str(excinfo.value)
 
 
 def test_the_registry_imports_without_the_pdf_extra(monkeypatch):
     """The extra is optional, so a machine without pymupdf must still import the
     registry, register both handlers, and run against a text source."""
     monkeypatch.setitem(sys.modules, "pymupdf", None)
-    for name in [n for n in sys.modules if n.startswith("commentdesk")]:
+    for name in [n for n in sys.modules if n.startswith("commentdraft")]:
         monkeypatch.delitem(sys.modules, name, raising=False)
-    module = importlib.import_module("commentdesk.sources")
+    module = importlib.import_module("commentdraft.sources")
     assert "text" in module.SOURCES
     assert "pdf_vision" in module.SOURCES

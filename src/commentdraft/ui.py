@@ -130,7 +130,7 @@ def build_state(config_path):
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>commentdesk</title>
+<title>commentdraft</title>
 <style>
 :root { --ink:#22211f; --soft:#6b675f; --line:#e5e1d8; --card:#ffffff;
         --bg:#f7f5f0; --accent:#155d33; --reply:#e8f3ec; --skip:#f1efea;
@@ -196,7 +196,7 @@ a { color:var(--accent); }
    and be wrong for any script it was not written for. */
 [dir="auto"] { unicode-bidi:plaintext; }
 </style></head><body><main>
-<h1>commentdesk</h1>
+<h1>commentdraft</h1>
 <p class="sub" id="meta"></p>
 <div class="row" style="margin-bottom:14px">
   <button id="showPrompt" class="ghost">Show prompt and config</button>

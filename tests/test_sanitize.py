@@ -5,8 +5,8 @@ import re
 
 import pytest
 
-from commentdesk.config import ConfigError, load_config
-from commentdesk.sanitize import sanitize_reply
+from commentdraft.config import ConfigError, load_config
+from commentdraft.sanitize import sanitize_reply
 
 SEP = ", "
 # The three smiling faces the example config bans. Written as escapes so the file
@@ -74,7 +74,7 @@ def test_find_repetition_sees_past_trailing_punctuation():
     The old code stripped the full stop and the exclamation mark but not the
     ASCII question mark, so these three became two keys and nothing was flagged.
     """
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [
         {"id": "1", "reply": "That helps a lot, thank you"},
@@ -87,7 +87,7 @@ def test_find_repetition_sees_past_trailing_punctuation():
 
 
 def test_two_repeats_are_normal_variation():
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [
         {"id": "1", "reply": "Thank you kindly"},
@@ -109,7 +109,7 @@ def test_repetition_is_found_across_non_ascii_punctuation():
     find_repetition detects repetition in naturally written Japanese; it does
     not, see test_repetition_is_invisible_in_a_language_without_word_spaces.
     """
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [
         {"id": "1", "reply": "お役に立てて 嬉しい。"},
@@ -133,7 +133,7 @@ def test_repetition_is_invisible_in_a_language_without_word_spaces():
     rather than fixed here; this test pins the behavior so it stays visible
     instead of being mistaken for coverage the function does not have.
     """
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [
         {"id": "1", "reply": "お役に立てて嬉しいです"},
@@ -144,7 +144,7 @@ def test_repetition_is_invisible_in_a_language_without_word_spaces():
 
 
 def test_leading_punctuation_does_not_split_an_opening():
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [
         {"id": "1", "reply": '"Glad you asked, here it is'},
@@ -158,21 +158,21 @@ def test_leading_punctuation_does_not_split_an_opening():
 def test_one_word_replies_are_not_counted_at_both_ends():
     """A single word is its own opening and its own closing, and counting it twice
     would report the same fact as two separate flags."""
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [{"id": str(i), "reply": "Thanks"} for i in range(1, 6)]
     assert find_repetition(rows) == []
 
 
 def test_find_repetition_tolerates_rows_without_a_reply():
-    from commentdesk.sanitize import find_repetition
+    from commentdraft.sanitize import find_repetition
 
     rows = [{"id": "1"}, {"id": "2", "reply": None}, {"id": "3", "reply": ""}]
     assert find_repetition(rows) == []
 
 
 def test_is_plug_matches_configured_markers_case_insensitively():
-    from commentdesk.sanitize import is_plug
+    from commentdraft.sanitize import is_plug
 
     assert is_plug("you can get it at https://example.com/field-guide", MARKERS)
     assert is_plug("Link In Bio", MARKERS)
@@ -186,7 +186,7 @@ def test_is_plug_is_false_when_no_configured_marker_appears():
     matters: markers that are absent must not be conjured, and an empty reply is
     never a plug.
     """
-    from commentdesk.sanitize import is_plug
+    from commentdraft.sanitize import is_plug
 
     assert not is_plug("Sleep on it and see how you feel tomorrow", MARKERS)
     assert not is_plug("", MARKERS)
@@ -208,7 +208,7 @@ def test_empty_plug_markers_cannot_be_configured(tmp_path, repo_root):
     match count is what turns a silent reformat into a loud test failure instead of
     a test that quietly stops testing anything.
     """
-    from commentdesk.sanitize import is_plug
+    from commentdraft.sanitize import is_plug
 
     real_config = repo_root / "examples" / "field-guide-book" / "config.toml"
     config_path = tmp_path / "config.toml"

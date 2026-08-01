@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
-from commentdesk.bakeoff import bakeoff_model_cfgs
-from commentdesk.config import ConfigError
-from commentdesk.report import estimate_cost
+from commentdraft.bakeoff import bakeoff_model_cfgs
+from commentdraft.config import ConfigError
+from commentdraft.report import estimate_cost
 
 USAGE = {
     "prompt_tokens": 1000,

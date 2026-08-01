@@ -1,6 +1,6 @@
 # The comments file
 
-`commentdesk run` and `commentdesk bakeoff` read one CSV. This page is the whole
+`commentdraft run` and `commentdraft bakeoff` read one CSV. This page is the whole
 format: every column the engine reads, which ones matter, and what happens to
 everything else.
 
@@ -65,7 +65,7 @@ was still named, and it is the place an operator actually types.
 ## What comes back
 
 `run` writes `out/review.csv`: your five columns, then `decision`, `reason`, `reply`,
-`model`, the four token counters, `cost_usd` and `error`. `commentdesk review` renders
+`model`, the four token counters, `cost_usd` and `error`. `commentdraft review` renders
 that file, or several of them, into `out/review.html`.
 
 `cost_usd` is blank rather than zero whenever no call was billed, which covers both an

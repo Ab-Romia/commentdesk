@@ -27,7 +27,7 @@ ten, and credit in the eventual advisory unless you would rather stay unnamed.
 - Anything that would cause an API key to be written to disk, printed, or included in
   an output file. Keys are read from the environment only, and nothing in this
   package is meant to echo one back.
-- The local test page served by `commentdesk ui`. It reads out the whole knowledge
+- The local test page served by `commentdraft ui`. It reads out the whole knowledge
   document through `/prompt` and `/trace` and spends the configured key through
   `/api/reply`, so reaching it at all is the whole of the access it grants. Three
   things stop that, and they are independent on purpose. It binds to `127.0.0.1` and

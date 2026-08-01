@@ -29,7 +29,7 @@ At the top level of a request's parameters, a gateway commonly accepts the key,
 ignores it, and routes with its own permissive default intact. Nested one level
 inside `provider`, it is read. A flag sitting in the wrong place is indistinguishable
 from a working one unless somebody reads the request body, which is exactly the class
-of mistake that survives unnoticed for a long time. `commentdesk` checks the nesting
+of mistake that survives unnoticed for a long time. `commentdraft` checks the nesting
 in code, on every model entry, before the first call of a run, rather than trusting a
 setting on an account somewhere that nothing here can see or verify.
 

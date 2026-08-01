@@ -4,7 +4,7 @@
 import tomllib
 from pathlib import Path
 
-import commentdesk
+import commentdraft
 
 
 def test_version_matches_pyproject(repo_root: Path) -> None:
@@ -16,13 +16,13 @@ def test_version_matches_pyproject(repo_root: Path) -> None:
     """
     with open(repo_root / "pyproject.toml", "rb") as handle:
         pyproject = tomllib.load(handle)
-    assert commentdesk.__version__ == pyproject["project"]["version"]
+    assert commentdraft.__version__ == pyproject["project"]["version"]
 
 
 def test_package_declares_no_runtime_surface_yet() -> None:
     """__init__ exports the version and nothing else.
 
     Submodules are imported by path, not re-exported here. Keeping __init__ empty
-    of imports keeps `import commentdesk` free of the optional pdf dependency.
+    of imports keeps `import commentdraft` free of the optional pdf dependency.
     """
-    assert commentdesk.__all__ == ["__version__"]
+    assert commentdraft.__all__ == ["__version__"]

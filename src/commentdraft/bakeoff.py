@@ -7,7 +7,7 @@ the list of model configurations. Driving the runs belongs to the command line,
 and rendering the comparison belongs to the review page.
 """
 
-from commentdesk.config import ConfigError
+from commentdraft.config import ConfigError
 
 # The only two keys a bake-off entry inherits from [model].
 GATEWAY_KEYS = ("base_url", "api_key_env")

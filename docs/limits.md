@@ -14,9 +14,9 @@ The workaround today is two configs and two runs, split by whatever decides the 
 for you:
 
 ```bash
-commentdesk run --config config-direct.toml --comments direct.csv --out out/direct
-commentdesk run --config config-pointer.toml --comments pointer.csv --out out/pointer
-commentdesk review out/direct/review.csv out/pointer/review.csv
+commentdraft run --config config-direct.toml --comments direct.csv --out out/direct
+commentdraft run --config config-pointer.toml --comments pointer.csv --out out/pointer
+commentdraft review out/direct/review.csv out/pointer/review.csv
 ```
 
 Making the choice per row **breaks the cache**, which is why it has not been built.

@@ -62,7 +62,7 @@ def test_voice_doc_covers_every_placeholder():
     Adding a placeholder to build_mapping and forgetting this file leaves an operator
     with a feature they cannot discover, so the test binds the two together.
     """
-    from commentdesk.prompt import KNOWLEDGE_TAG
+    from commentdraft.prompt import KNOWLEDGE_TAG
 
     text = read_doc("writing-a-voice.md")
     for name in (
@@ -86,8 +86,8 @@ def test_voice_doc_covers_every_placeholder():
 
 def test_sources_doc_documents_every_registered_source():
     """A source nobody documented is a source nobody can configure."""
-    import commentdesk.sources.text  # noqa: F401  (registers "text")
-    from commentdesk import sources
+    import commentdraft.sources.text  # noqa: F401  (registers "text")
+    from commentdraft import sources
 
     text = read_doc("sources.md")
     for name in sources.SOURCES:
@@ -116,7 +116,7 @@ def test_bakeoff_doc_publishes_measured_figures_that_carry_their_date():
     assert "re-verify" in text
     assert "Re-run the command before you rely on any of it." in text
     # Reproducible means a reader can run it, which means the command stays on the page.
-    assert "commentdesk bakeoff --config examples/field-guide-book/config.toml" in text
+    assert "commentdraft bakeoff --config examples/field-guide-book/config.toml" in text
     assert "data_collection" in text
     assert "blind" in text
 
@@ -166,7 +166,7 @@ def test_comments_csv_doc_names_every_column_the_engine_reads():
     builds by hand in a spreadsheet had four command lines and a mermaid node. A
     column added to IN_FIELDS and left out of this page is a column nobody can find,
     so the two are bound together."""
-    from commentdesk.engine import IN_FIELDS, TITLE_ALIAS
+    from commentdraft.engine import IN_FIELDS, TITLE_ALIAS
 
     text = read_doc("comments-csv.md")
     for field in IN_FIELDS:
@@ -219,15 +219,15 @@ def test_limits_doc_states_every_known_limit():
 # in another script reached a module and nothing more. This list is the other half of
 # that guarantee, and the test below binds it to the document that publishes it.
 ENGINE_OWNED_ENGLISH = [
-    ("commentdesk.prompt", "OUTPUT_CONTRACT"),
-    ("commentdesk.engine", "RETRY_NUDGE"),
-    ("commentdesk.engine", "EMPTY_COMMENT_REASON"),
-    ("commentdesk.sources.pdf_vision", "TRANSCRIBE_PROMPT"),
-    ("commentdesk.render.review_html", "DRAFT_BANNER"),
-    ("commentdesk.render.review_html", "DEFAULT_CURRENCY_NOTE"),
-    ("commentdesk.render.review_html", "NEVER_POSTED_NOTE"),
-    ("commentdesk.render.review_html", "COLUMNS"),
-    ("commentdesk.ui", "_PAGE"),
+    ("commentdraft.prompt", "OUTPUT_CONTRACT"),
+    ("commentdraft.engine", "RETRY_NUDGE"),
+    ("commentdraft.engine", "EMPTY_COMMENT_REASON"),
+    ("commentdraft.sources.pdf_vision", "TRANSCRIBE_PROMPT"),
+    ("commentdraft.render.review_html", "DRAFT_BANNER"),
+    ("commentdraft.render.review_html", "DEFAULT_CURRENCY_NOTE"),
+    ("commentdraft.render.review_html", "NEVER_POSTED_NOTE"),
+    ("commentdraft.render.review_html", "COLUMNS"),
+    ("commentdraft.ui", "_PAGE"),
 ]
 
 
@@ -248,7 +248,7 @@ def test_limits_doc_names_every_english_string_the_engine_owns(module_name, attr
 
 
 def _module_dotted_name(path: Path) -> str:
-    """The import path for a module under src/, e.g. commentdesk.render.review_html."""
+    """The import path for a module under src/, e.g. commentdraft.render.review_html."""
     rel = path.relative_to(PACKAGE_ROOT.parent).with_suffix("")
     parts = [part for part in rel.parts if part != "__init__"]
     return ".".join(parts)
@@ -342,7 +342,7 @@ EXCUSED_STRING_CONSTANTS = {
     # review_html.py next, never text a browser renders, so no operator ever sees
     # them; docs/limits.md documents what a reader of the review page sees, and
     # this string does not reach that page as text.
-    ("commentdesk.render.review_html", "STYLE"),
+    ("commentdraft.render.review_html", "STYLE"),
 }
 
 
@@ -354,7 +354,7 @@ def test_a_new_operator_visible_string_constant_cannot_hide_from_the_limits_list
     whatever it finds there.
 
     What this catches: a new module-level `NAME = "a sentence or two"` added
-    anywhere under src/commentdesk, in the specific shape every current entry on
+    anywhere under src/commentdraft, in the specific shape every current entry on
     the limits table already has, that is neither named in ENGINE_OWNED_ENGLISH
     (and therefore in docs/limits.md, which the test above enforces) nor listed in
     EXCUSED_STRING_CONSTANTS with a reason.
