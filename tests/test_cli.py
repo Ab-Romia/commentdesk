@@ -126,6 +126,7 @@ def test_every_subcommand_offers_only_the_flags_it_reads():
 
     parser = build_parser()
     takes = {
+        "pull": {"--config", "--out"},
         "run": {"--config", "--out"},
         "bakeoff": {"--config", "--out"},
         "review": {"--out"},

@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Command line entry point: run, review, publish, chat, ui, ingest, bakeoff.
+"""Command line entry point: pull, run, review, publish, chat, ui, ingest, bakeoff.
 
 Startup problems print one line and return 2. A traceback at that point would be
 noise: nothing has run, and the only useful fact is which file or which variable
 is wrong. A run that reached the model and lost rows returns 1 instead, so a
-scripted caller can tell a partial pass from a clean one. `publish` has a third:
-3 means the queue was stopped part way because a write reached the platform and
-could not be proved, which is the one outcome where a person has to go and look
-at something before running anything again.
+scripted caller can tell a partial pass from a clean one. `pull` uses the same
+two: 2 is a setup that never reached the platform, and 1 is a pull that reached
+it and did not come back whole, whether the platform refused the call or one post
+could not be read. `publish` has a third: 3 means the queue was stopped part way
+because a write reached the platform and could not be proved, which is the one
+outcome where a person has to go and look at something before running anything
+again.
 """
 
 from __future__ import annotations
@@ -16,11 +19,12 @@ import argparse
 import json
 import os
 import sys
+import warnings
 from pathlib import Path
 
 from .bakeoff import bakeoff_model_cfgs
 from .config import ConfigError, load_config, load_env
-from .engine import read_comments, run_one, run_pipeline, write_rows
+from .engine import read_comments, run_one, run_pipeline, write_comments, write_rows
 from .prompt import render_system_text
 from .render.review_html import blind_label, load_row_sets, load_rows, render_review
 from .report import build_report
@@ -408,6 +412,131 @@ def cmd_publish(args) -> int:
     return 1 if counts["failed"] or counts["unrecorded"] else 0
 
 
+def cmd_pull(args) -> int:
+    """Read comments off the configured platform into the CSV `run` reads.
+
+    The front of the loop. It writes exactly what `commentdraft run --comments`
+    reads, with no editing step in between, because the connector returns rows in
+    the engine's own shape and engine.write_comments owns the column list on both
+    sides of the file.
+
+    Every reason to refuse is found before the platform is called, in the order an
+    operator can act on: the config, then the platform name, then the read
+    credential, then the state file. Reading needs no write credential and no
+    [publish] table at all, which is the point of the [source] table: pulling
+    comments and reading the drafts for a week is what most operators should do
+    before they ask any platform for a write scope.
+
+    Nothing here suppresses what the connector had to say. A token that died
+    because somebody changed their password produces that sentence, on its own
+    line, rather than a generic failure, because the fix for each way a token dies
+    is a different fix and only the connector knows which one happened.
+
+    A post the connector could not read is a warning rather than a lost run, so
+    those are printed and the exit code goes to 1: the rows that were read are
+    still written, and a scheduled caller must not read a partial pull as a clean
+    one.
+    """
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as e:
+        return _fail(str(e))
+    except OSError as e:
+        return _fail(f"cannot read a file named in {args.config}: {e}")
+
+    # Lazy, on the same rule as cmd_publish and cmd_ui: a subcommand's own
+    # dependencies load when that subcommand runs, so importing this module still
+    # reaches no connector.
+    from .platforms import PlatformError, find_platform, get_platform, source_target
+    from .pull import PullError, load_state, remember, save_state, unseen
+
+    try:
+        platform_name, credential_env = source_target(cfg)
+        # Looked up, not built, on the same rule as cmd_publish: a name nobody
+        # registered is worth saying before a credential is asked for.
+        find_platform(platform_name)
+    except PlatformError as e:
+        return _fail(str(e))
+
+    if not os.environ.get(credential_env):
+        return _fail(
+            f"missing env var(s): {credential_env} (put them in .env next to {args.config})"
+        )
+
+    try:
+        state = load_state(args.state, platform_name)
+    except PullError as e:
+        return _fail(str(e))
+    except OSError as e:
+        return _fail(f"cannot read {args.state}: {e}")
+
+    # The flag wins over the file, and is then written back to it. An operator who
+    # types a marker is answering the question the file was answering for them.
+    since = args.since or state.since
+
+    try:
+        platform = get_platform(platform_name)
+    except PlatformError as e:
+        return _fail(str(e))
+
+    out_path = Path(args.out)
+    with warnings.catch_warnings(record=True) as raised:
+        # Every warning, every time. The default filter shows a repeated warning
+        # once, and "one post could not be read" is per post rather than per run.
+        warnings.simplefilter("always")
+        try:
+            rows = platform.fetch_comments(cfg, since)
+        except PlatformError as e:
+            # A shape problem in the config, found by the connector rather than by
+            # the registry. Nothing has been read, so it is a setup error.
+            return _fail(str(e))
+        except Exception as e:  # noqa: BLE001 - a connector may raise anything it likes
+            # Deliberately broad, and deliberately not flattened. A connector's own
+            # failure type is its own and the registry does not name it, but the
+            # sentence it carries is the whole value: "the password on the account
+            # behind this token was changed" is what the operator has to act on.
+            for warning in raised:
+                print(str(warning.message), file=sys.stderr)
+            print(f"the pull did not finish: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+        skipped = [str(warning.message) for warning in raised]
+
+    for message in skipped:
+        print(message, file=sys.stderr)
+
+    fresh = unseen(rows, state)
+    try:
+        write_comments(fresh, out_path)
+    except OSError as e:
+        print(f"cannot write {out_path}: {e}", file=sys.stderr)
+        return 1
+
+    print(f"read {len(rows)} comment(s) from {platform_name}")
+    held = len(rows) - len(fresh)
+    if held:
+        print(f"{held} of them were pulled before, so they were left out")
+    print(f"wrote {len(fresh)} to {out_path}")
+    if not fresh:
+        print(
+            f"{out_path} now holds its header and nothing else, so `commentdraft run` "
+            "over it will say there are no comments in it"
+        )
+
+    if args.state:
+        try:
+            save_state(args.state, remember(state, platform_name, since, rows))
+        except OSError as e:
+            print(f"cannot write {args.state}: {e}", file=sys.stderr)
+            return 1
+        print(f"{args.state} remembers every comment id pulled so far")
+    else:
+        print(
+            "nothing remembers this pull, so running it again pulls the same comments "
+            "again and drafts them again. Pass --state to have them remembered."
+        )
+    return 1 if skipped else 0
+
+
 def cmd_ingest(args) -> int:
     try:
         cfg = load_config(args.config)
@@ -465,6 +594,28 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     subs = parser.add_subparsers(dest="command")
+
+    # --out is a file here rather than a directory, on the same rule as ingest:
+    # it writes one named thing and there is nothing else in the pull to put
+    # beside it. The name of that file is what `run --comments` takes.
+    pull = _common(
+        subs.add_parser("pull", help="read comments from the platform in [source]"),
+        out_default="comments.csv",
+        out_help="comments file to write (a file)",
+    )
+    pull.add_argument(
+        "--since",
+        default="",
+        help="pull only what the platform made at or after this marker. The "
+        "connector defines the shape; facebook reads an ISO 8601 time such as "
+        "2026-08-01T09:30:00+0000.",
+    )
+    pull.add_argument(
+        "--state",
+        default="",
+        help="a small JSON file remembering every comment id pulled, so a second "
+        "run over the same comments writes none of them a second time",
+    )
 
     run = _common(subs.add_parser("run", help="triage a CSV of comments"))
     run.add_argument("--comments", default="comments.csv")
@@ -531,6 +682,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 HANDLERS = {
+    "pull": cmd_pull,
     "run": cmd_run,
     "bakeoff": cmd_bakeoff,
     "review": cmd_review,

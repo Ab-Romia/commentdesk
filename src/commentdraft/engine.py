@@ -295,6 +295,26 @@ def read_comments(path: str | Path) -> list[dict]:
     return rows
 
 
+def write_comments(rows: list[dict], path: str | Path) -> None:
+    """Write rows in IN_FIELDS shape: the file read_comments reads back.
+
+    The counterpart of read_comments, and the reason `commentdraft pull` needs no
+    editing step in front of `commentdraft run`. One function owns the column
+    list on the way out and one owns it on the way in, so a file this writes is a
+    file that one reads, header spelling included.
+
+    Every row is projected onto IN_FIELDS rather than written as it arrives. A
+    connector that returns a sixth key would otherwise stop the whole pull with a
+    ValueError out of the csv module, and a key the format has no meaning for is
+    not a reason to lose the comments beside it.
+    """
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=IN_FIELDS)
+        writer.writeheader()
+        writer.writerows({key: str(row.get(key, "") or "") for key in IN_FIELDS} for row in rows)
+
+
 def write_rows(rows: list[dict], path: str | Path) -> None:
     """Write the review CSV, creating the output directory if it is missing."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
