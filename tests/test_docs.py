@@ -200,6 +200,40 @@ def test_platform_policy_maps_features_to_clauses():
     assert "data_collection" in text
 
 
+def test_facebook_platform_guide_keeps_the_admissions_that_make_it_worth_reading():
+    """The Facebook guide's value is the parts a later edit is tempted to tidy away.
+
+    Three of them, and each is pinned here because losing it silently would turn an
+    honest page into an ordinary one that reads exactly the same.
+
+    First, the connector has never been run against a real Page, and the page says so
+    near the top rather than in a footnote. The day somebody does run it, that sentence
+    should be replaced deliberately, in a diff a reviewer reads, not deleted because
+    the page felt negative.
+
+    Second, both readings of `POST /{comment_id}` are named. Meta documents it as
+    "Reply to a Comment" and as the update operation that edits the comment, and a page
+    that prints only the reading this connector followed is a page that has quietly
+    decided a question Meta has not.
+
+    Third, the sentence the write check was built on. A 2xx POST with an unreadable
+    body was treated as a non-event once, and `{"success": true}` is how Graph answers
+    an update, so that reading overwrote three comments while reporting that nothing
+    had been sent. The rule that replaced it belongs on the page in those words.
+    """
+    text = (DOCS / "platforms" / "facebook.md").read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+    assert "Nobody has run this connector against a real Facebook Page." in flat
+    assert "POST /v26.0/{comment-id}/comments" in flat, "the path the connector takes"
+    assert "POST /{comment_id}" in flat, "the contested path, which has to stay named"
+    assert "A 2xx POST is a write that happened." in flat
+    # Meta's own defects, which are the two things a reader cannot find anywhere else.
+    assert "graph.facebook.comv26.0" in flat, "the missing slash in Meta's own samples"
+    assert "pages_read_user_engagement" in flat, "the permission Meta lists and does not have"
+    # Where a number is genuinely absent, the page says so rather than repeating folklore.
+    assert "Unpublished." in flat
+
+
 def test_limits_doc_states_every_known_limit():
     text = read_doc("limits.md")
     for phrase in (
@@ -432,7 +466,11 @@ FORBIDDEN_CLAIMS = [
 ]
 
 
-@pytest.mark.parametrize("path", sorted(DOCS.glob("*.md")), ids=lambda p: p.name)
+# rglob, not glob. The platform guides live in docs/platforms/, and a `docs/*.md` glob
+# walked straight past them: the first one shipped uncovered by the rule its own README
+# is held to. A pattern that only holds for the top level of a directory tree is a
+# pattern that stops holding the first time somebody adds a subdirectory.
+@pytest.mark.parametrize("path", sorted(DOCS.rglob("*.md")), ids=lambda p: str(p.relative_to(DOCS)))
 def test_a_doc_makes_no_claim_the_project_cannot_support(path):
     lower = path.read_text(encoding="utf-8").lower()
     hits = [pattern for pattern in FORBIDDEN_CLAIMS if re.search(pattern, lower)]

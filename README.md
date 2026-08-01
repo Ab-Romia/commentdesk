@@ -243,6 +243,7 @@ this tool talks to.
 | `docs/bakeoff.md` | comparing models blind, one measured run against the example, and one parameter that lies |
 | `docs/platform-policy.md` | which clause each safety property exists for |
 | `docs/limits.md` | what this cannot do, stated before you find out |
+| `docs/platforms/facebook.md` | connecting a Facebook Page: scopes, tokens, the contested reply path, and what breaks |
 
 ## What this does, and what it does not do
 

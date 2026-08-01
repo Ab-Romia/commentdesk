@@ -159,8 +159,10 @@ over, and keep one per platform: pulling two platforms through one file would ha
 each of them read the other's ids as its own. A file written for another platform is
 refused rather than merged.
 
-`--since` narrows what the connector asks the platform for at all, which is what keeps
-a scheduled pull cheap in API calls. The shape is the connector's to define; the
+`--since` narrows what reaches the CSV. It does not narrow what the connector asks the
+platform for: the Facebook connector applies the marker to what came back rather than
+passing it to Meta, so a `--since` pull costs exactly as many API calls as one without.
+`docs/platforms/facebook.md` says why. The shape is the connector's to define; the
 Facebook connector reads an ISO 8601 time such as `2026-08-01T09:30:00+0000` and
 refuses a marker it cannot read rather than silently reading the whole window again.
 A marker typed on the command line wins over the one in the state file and is then
