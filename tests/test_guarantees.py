@@ -847,6 +847,16 @@ CONFIG_SCHEMA = frozenset(
         "publish",
         "publish.platform",
         "publish.credential_env",
+        # The other half of that sentence, added when reading got a table of its
+        # own. A read only deployment could not be written down while the Page a
+        # connector reads lived under [publish]: pulling a comment required naming
+        # a write credential nobody had been granted. These three are the same two
+        # registry keys and one connector key as above, in the table that needs no
+        # write scope anywhere near it.
+        "source",
+        "source.platform",
+        "source.credential_env",
+        "source.page_id",
         # A connector's own key, declared by that connector through the registry's
         # PUBLISH_KEYS convention. It was shipped and documented for a whole
         # release while neither the allowlist nor the denylist could see it: the
@@ -951,7 +961,7 @@ def test_the_declared_config_schema_holds_no_such_key() -> None:
 
 def _declared_schema() -> set[str]:
     from commentdraft.config import REQUIRED
-    from commentdraft.platforms import declared_publish_keys
+    from commentdraft.platforms import declared_publish_keys, declared_source_keys
 
     names = set(REQUIRED)
     names |= {f"{section}.{key}" for section, keys in REQUIRED.items() for key in keys}
@@ -960,6 +970,12 @@ def _declared_schema() -> set[str]:
     # key could sit outside the frozen vocabulary and this file would report the
     # format as fully reviewed.
     names |= declared_publish_keys()
+    # And [source], on exactly the same argument. Reading has its own table now,
+    # a connector declares its own keys in it, and a freeze that read one table
+    # and not the other would go on reporting the whole format as reviewed while
+    # half of it had never been looked at. Asking for more keys can only make this
+    # stricter: every name either of these reports has to be written down above.
+    names |= declared_source_keys()
     return names
 
 
@@ -996,6 +1012,50 @@ def test_a_connector_key_nobody_declared_is_invisible_to_the_freeze() -> None:
     # possible, and test_the_config_vocabulary_is_exactly_the_reviewed_list is
     # what makes a shipped config carrying an undeclared key fail.
     assert "publish.board_id" not in _declared_schema()
+
+
+def test_a_connector_source_key_nobody_declared_is_invisible_to_the_freeze() -> None:
+    """The same mechanism, on the table reading uses.
+
+    page_id is read out of [source] now and out of [publish] when a config was
+    written before [source] existed, so it is declared in both. A connector that
+    adds a reading key and declares it in neither place has added a key nothing
+    reviews, which is the whole failure this convention exists for.
+    """
+    from commentdraft.platforms import DECLARED_SOURCE_KEYS, PLATFORMS, declared_source_keys
+
+    assert "source.page_id" in declared_source_keys()
+
+    class Undeclared:
+        pass
+
+    class Declared:
+        SOURCE_KEYS = ("subreddit",)
+
+    PLATFORMS["_undeclared_source_for_this_test"] = Undeclared
+    PLATFORMS["_declared_source_for_this_test"] = Declared
+    try:
+        found = declared_source_keys()
+    finally:
+        del PLATFORMS["_undeclared_source_for_this_test"]
+        del PLATFORMS["_declared_source_for_this_test"]
+
+    assert "source.subreddit" in found, "a declared reading key did not reach the vocabulary"
+    assert getattr(Undeclared, DECLARED_SOURCE_KEYS, None) is None
+    assert "source.subreddit" not in _declared_schema()
+
+
+def test_the_declared_source_schema_holds_no_such_key() -> None:
+    """The denylist over the reading table, which is a table a bypass could be
+    declared in exactly as easily as the publishing one."""
+    from commentdraft.platforms import declared_source_keys
+
+    offenders = [
+        name
+        for name in sorted(declared_source_keys())
+        if BYPASS_KEY.search(name.rsplit(".", 1)[-1])
+    ]
+    assert offenders == [], f"the declared reading schema holds an approval bypass: {offenders}"
 
 
 def _shipped_schema() -> set[str]:

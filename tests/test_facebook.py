@@ -947,6 +947,100 @@ def test_an_unset_credential_variable_is_named(connector, monkeypatch) -> None:
     assert TOKEN_ENV in str(exc.value)
 
 
+# ---------------------------------------------------------------------------
+# [source], which is what makes a read only deployment writable down
+# ---------------------------------------------------------------------------
+
+READ_ENV = "CD_FB_READ_TOKEN"
+READ_PAGE = "9988776655"
+
+# No [publish] table anywhere in it. This is the config most operators should be
+# running for their first weeks: a read credential, a Page, and no way at all to
+# write anything to anybody.
+READ_ONLY = {
+    "source": {
+        "platform": "facebook",
+        "credential_env": READ_ENV,
+        "page_id": READ_PAGE,
+    }
+}
+
+READ_FEED = f"{READ_PAGE}/{fb.POSTS_EDGE}"
+
+
+@pytest.fixture
+def read_token(monkeypatch):
+    monkeypatch.setenv(READ_ENV, "a-read-only-token")
+
+
+def test_a_config_with_a_read_credential_and_no_publish_table_pulls(read_token, connector) -> None:
+    """The whole point of the table. Reading used to be spelled out of [publish],
+    so pulling a comment required naming a write credential that a platform may
+    take weeks to grant, and the posture most operators should start in was the
+    one posture the config could not express."""
+    graph = Graph()
+    graph.answer("GET", READ_FEED, feed({"id": POST, "message": "a clip"}))
+    graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
+
+    with wired(graph):
+        rows = connector.fetch_comments(READ_ONLY, None)
+
+    assert [row["id"] for row in rows] == [f"{POST}_1"]
+    assert {call.query["access_token"] for call in graph.calls} == {"a-read-only-token"}
+
+
+def test_reading_uses_the_source_table_when_both_tables_are_there(
+    read_token, token, connector
+) -> None:
+    """Two credentials and two Page ids, and the read has to take both of its own.
+    A read that took the write token would be a read only deployment in name."""
+    graph = Graph()
+    graph.answer("GET", READ_FEED, feed({"id": POST}))
+    graph.answer("GET", f"{POST}/comments", feed(comment(f"{POST}_1")))
+
+    with wired(graph):
+        connector.fetch_comments({**READ_ONLY, **CONFIG}, None)
+
+    assert graph.of("GET", FEED) == [], "the read went to the Page named for publishing"
+    assert {call.query["access_token"] for call in graph.calls} == {"a-read-only-token"}
+
+
+def test_publishing_never_borrows_the_read_credential(read_token, connector, monkeypatch) -> None:
+    """The fallback runs one way only. A config with a read credential and no
+    [publish] table cannot publish, and the refusal names the missing table rather
+    than quietly sending with the token that was there."""
+    monkeypatch.delenv(TOKEN_ENV, raising=False)
+    graph = Graph()
+
+    with wired(graph), pytest.raises(PlatformError) as exc:
+        connector.publish_reply(READ_ONLY, f"{POST}_1", "hello")
+
+    assert "publish" in str(exc.value)
+    assert graph.calls == [], "a write was attempted with a read credential"
+
+
+def test_a_source_table_names_itself_when_its_page_id_is_wrong(read_token, connector) -> None:
+    """The message has to name the table the operator has to edit. Two tables can
+    hold this key now, and sending somebody to correct the one that is already
+    right is worse than saying nothing."""
+    section = dict(READ_ONLY["source"])
+    del section[fb.PAGE_KEY]
+
+    with pytest.raises(PlatformError) as exc:
+        connector.fetch_comments({"source": section}, None)
+
+    message = str(exc.value)
+    assert fb.PAGE_KEY in message
+    assert message.startswith("source.")
+
+
+def test_an_unset_read_credential_is_named(connector, monkeypatch) -> None:
+    monkeypatch.delenv(READ_ENV, raising=False)
+    with pytest.raises(PlatformError) as exc:
+        connector.fetch_comments(READ_ONLY, None)
+    assert READ_ENV in str(exc.value)
+
+
 def test_the_connector_is_registered_and_implements_the_whole_interface() -> None:
     from commentdraft.platforms import Platform
 

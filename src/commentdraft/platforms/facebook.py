@@ -50,10 +50,12 @@ from typing import NoReturn
 
 from commentdraft.platforms import (
     PUBLISH_SECTION,
+    SOURCE_SECTION,
     PlatformError,
     PlatformHalt,
     publish_target,
     register,
+    source_target,
 )
 
 PLATFORM_NAME = "facebook"
@@ -64,9 +66,14 @@ PLATFORM_NAME = "facebook"
 API_VERSION = "v26.0"
 GRAPH_HOST = "graph.facebook.com"
 
-# The one key this connector adds to the [publish] table. The other two, the
+# The one key this connector adds to a table of its own. The other two, the
 # platform name and the credential variable, belong to every connector and are
-# validated by the registry's own publish_target.
+# validated by the registry's own publish_target and source_target.
+#
+# The same spelling in both tables. Reading is where it is actually used, and it
+# is declared under [publish] as well because that is where it shipped: a config
+# written before [source] existed names the Page there, and pulling has to go on
+# working for it rather than telling an operator their working setup is wrong.
 PAGE_KEY = "page_id"
 
 # Seconds. A connector call sits between a person pressing a key and that person
@@ -199,7 +206,8 @@ CAUSES: dict[tuple[int | None, int | None], str] = {
         "a parameter on the call was rejected, which for this connector usually "
         "means the id it was pointed at does not exist, is not visible to this "
         "token, or is a Page id that belongs to somebody else. Check "
-        f"{PUBLISH_SECTION}.{PAGE_KEY} against the Page the token was issued for."
+        f"{SOURCE_SECTION}.{PAGE_KEY}, or {PUBLISH_SECTION}.{PAGE_KEY} if that is "
+        "where your config names the Page, against the Page the token was issued for."
     ),
     (368, None): (
         "the action was blocked as abusive or otherwise disallowed. This is a "
@@ -450,16 +458,24 @@ def _cause(code: int | None, subcode: int | None) -> str:
     return "this code is not one this connector has a reading for."
 
 
-def _publish_table(config: dict) -> dict:
-    section = config.get(PUBLISH_SECTION)
-    if not isinstance(section, dict):
-        raise PlatformError(
-            f"[{PUBLISH_SECTION}] must be a table holding {PAGE_KEY} for this connector"
-        )
-    return section
+def _read_table(config: dict) -> tuple[str, dict]:
+    """The table the Page id is read out of, and what it is called.
+
+    [source] when the config has one, and [publish] when it does not, exactly as
+    the registry's source_target picks the credential. Both have to answer the
+    same way or a config could be pulled with one table's token against the other
+    table's Page.
+    """
+    for name in (SOURCE_SECTION, PUBLISH_SECTION):
+        section = config.get(name)
+        if section is not None:
+            if not isinstance(section, dict):
+                raise PlatformError(f"[{name}] must be a table holding {PAGE_KEY}")
+            return name, section
+    raise PlatformError(f"this config names no Page: add [{SOURCE_SECTION}] with {PAGE_KEY} in it")
 
 
-def _text_key(section: dict, key: str, hint: str) -> str:
+def _text_key(table: str, section: dict, key: str, hint: str) -> str:
     """A non-empty string, or a PlatformError naming the key and what belongs in it.
 
     Shape and type, never content, on the same rule as config.load_config and the
@@ -469,22 +485,41 @@ def _text_key(section: dict, key: str, hint: str) -> str:
     """
     value = section.get(key)
     if isinstance(value, bool) or not isinstance(value, str) or not value.strip():
-        raise PlatformError(f"{PUBLISH_SECTION}.{key} must be a non-empty string ({hint})")
+        raise PlatformError(f"{table}.{key} must be a non-empty string ({hint})")
     return value.strip()
 
 
 def _page_id(config: dict) -> str:
-    return _text_key(_publish_table(config), PAGE_KEY, "the numeric id of your Facebook Page")
+    table, section = _read_table(config)
+    return _text_key(table, section, PAGE_KEY, "the numeric id of your Facebook Page")
 
 
-def _token(config: dict) -> str:
-    """The Page access token, out of the variable the config names.
+def _read_token(config: dict) -> str:
+    """The Page access token for reading, out of the variable the config names.
 
-    publish_target does the shape checking on the two keys every connector has,
-    so a config that names no platform or no credential variable is refused with
-    the registry's own wording rather than with a second one written here.
+    source_target does the shape checking on the two keys every connector has, so
+    a config that names no platform or no credential variable is refused with the
+    registry's own wording rather than with a second one written here. It reads
+    [source] first and falls back to [publish], which is what lets a config that
+    has only ever had a write credential go on pulling.
+    """
+    _, credential_env = source_target(config)
+    return _credential(credential_env)
+
+
+def _write_token(config: dict) -> str:
+    """The Page access token for publishing, out of the [publish] table alone.
+
+    No fallback in this direction. Reading may borrow the publish credential when
+    that is the only one an operator has written down, and publishing may never
+    borrow the read one: a token granted for reading is the one credential this
+    connector must not be able to write with by accident.
     """
     _, credential_env = publish_target(config)
+    return _credential(credential_env)
+
+
+def _credential(credential_env: str) -> str:
     token = os.environ.get(credential_env, "")
     if not token.strip():
         raise PlatformError(
@@ -527,8 +562,13 @@ def _cutoff(since: str | None) -> datetime | None:
     Graph's own created_time arrives in and the shape the approval log writes.
     A marker that cannot be read is refused rather than ignored, because ignoring
     it means silently re-reading the whole window.
+
+    No marker at all is a different thing from an unreadable one, and both
+    spellings of it mean the same: read everything. The registry's interface types
+    since as a string, so a caller with nothing stored has an empty one to hand
+    over, and refusing that would make a first pull impossible.
     """
-    if since is None:
+    if since is None or not since.strip():
         return None
     parsed = _parse_time(since)
     if parsed is None:
@@ -693,13 +733,17 @@ class Facebook:
     carries nothing between calls and holds no credential of its own.
     """
 
-    # The [publish] keys this connector reads beyond the two every connector has,
-    # declared where the registry can see them. Without this the key is real,
+    # The keys this connector reads beyond the two every connector has, declared
+    # per table where the registry can see them. Without this the key is real,
     # shipped and documented, and invisible to the test that freezes the config
     # vocabulary, which then passes over it while claiming to have read the whole
-    # format. The constant below and this tuple are the same fact written twice on
-    # purpose: one is what the code reads, the other is what review reads.
+    # format. The constant above and these tuples are the same fact written twice
+    # on purpose: one is what the code reads, the other is what review reads.
+    #
+    # The Page id is declared in both tables because it is honoured in both:
+    # [source] is where it belongs, and [publish] is where it shipped.
     PUBLISH_KEYS = (PAGE_KEY,)
+    SOURCE_KEYS = (PAGE_KEY,)
 
     def fetch_comments(self, config: dict, since: str | None = None) -> list[dict]:
         """Every comment on the Page's own posts, in engine.IN_FIELDS shape.
@@ -734,7 +778,7 @@ class Facebook:
         with no comments. The post is named through the warnings module and the
         walk carries on.
         """
-        token = _token(config)
+        token = _read_token(config)
         page_id = _page_id(config)
         cutoff = _cutoff(since)
         rows: list[dict] = []
@@ -795,7 +839,7 @@ class Facebook:
         property the whole approval claim rests on. A retry inside this method
         would break it silently and no test above this layer would notice.
         """
-        token = _token(config)
+        token = _write_token(config)
         parent = (parent_id or "").strip()
         if not parent:
             raise FacebookError("there is no comment id to reply to")

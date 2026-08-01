@@ -11,6 +11,13 @@ are separate on every platform worth connecting to, and a connector that can onl
 read is a legitimate connector that most operators should run for a while before
 they ask anyone for a write scope.
 
+The config is separate in the same way and for the same reason. [source] names
+what to read and the variable holding the read credential; [publish] names what
+to write and the variable holding the write credential. Reading used to be
+spelled out of [publish], which meant a read only deployment could not be written
+down at all, and the posture most operators should start in was the one posture
+the config had no way to express.
+
 Nothing in this module calls publish_reply. The only caller in the package is
 commentdraft.approve, which reaches it once per keystroke a person actually made,
 and tests/test_guarantees.py walks the AST of every module to keep that true.
@@ -69,6 +76,12 @@ PUBLISHED_ID = "published_id"
 # had no way to know it existed.
 DECLARED_KEYS = "PUBLISH_KEYS"
 
+# The same convention for the reading table, because the same hole opens the
+# moment a connector reads a key out of it. One attribute per table rather than
+# one attribute carrying both: a connector may well name the account differently
+# on each side, and a single list could not say which table a key belonged to.
+DECLARED_SOURCE_KEYS = "SOURCE_KEYS"
+
 
 @runtime_checkable
 class Platform(Protocol):
@@ -76,8 +89,11 @@ class Platform(Protocol):
 
     fetch_comments returns rows in engine.IN_FIELDS shape, so that whatever a
     connector pulls in is the same thing read_comments produces from a CSV and the
-    rest of the pipeline never learns where a row came from. `since` is an opaque
-    marker the connector itself defines and the caller stores.
+    rest of the pipeline never learns where a row came from. Exactly that shape,
+    not a superset: `commentdraft pull` writes those rows straight into the CSV
+    `commentdraft run` reads, and a sixth key would be a column nothing downstream
+    has a meaning for. `since` is an opaque marker the connector itself defines,
+    which the caller stores and hands back and never reads.
 
     publish_reply sends one reply under one parent and returns the id the platform
     assigned to it. That returned id is the whole point: it is what an operator
@@ -97,6 +113,15 @@ PLATFORMS: dict[str, type] = {}
 PUBLISH_SECTION = "publish"
 PLATFORM_KEY = "platform"
 CREDENTIAL_KEY = "credential_env"
+
+# The table an operator writes to turn reading on. The same two keys, and a
+# separate table on purpose: reading and writing are separate scopes on every
+# platform worth connecting to, they are granted weeks apart, and a config
+# holding only this one is the read only deployment most operators should start
+# with. Reading used to be spelled out of [publish], which made a read only
+# deployment impossible to write down: pulling a comment required naming a write
+# credential that nobody had been granted yet.
+SOURCE_SECTION = "source"
 
 
 def register(name: str) -> Callable[[type], type]:
@@ -166,8 +191,42 @@ def publish_target(cfg: dict) -> tuple[str, str]:
     if not isinstance(section, dict):
         raise PlatformError(f"[{PUBLISH_SECTION}] must be a table")
     return (
-        _require_text(section, PLATFORM_KEY, "a registered platform name"),
-        _require_text(section, CREDENTIAL_KEY, "the name of an environment variable"),
+        _require_text(section, PUBLISH_SECTION, PLATFORM_KEY, "a registered platform name"),
+        _require_text(
+            section, PUBLISH_SECTION, CREDENTIAL_KEY, "the name of an environment variable"
+        ),
+    )
+
+
+def source_target(cfg: dict) -> tuple[str, str]:
+    """The platform name and the variable holding the read credential, or an error.
+
+    [source] when the config has one. [publish] when it does not, which is the
+    one place these two tables touch, and the direction matters: a config written
+    before [source] existed goes on pulling from the table it already has, and
+    nothing anywhere reads [source] to publish with. A read credential cannot
+    become a write credential by being pointed at from the other side.
+
+    Shape and type, never content, on the same rule as publish_target above.
+    """
+    section = cfg.get(SOURCE_SECTION)
+    if section is None:
+        if cfg.get(PUBLISH_SECTION) is not None:
+            return publish_target(cfg)
+        raise PlatformError(
+            f"this config has no [{SOURCE_SECTION}] table and no [{PUBLISH_SECTION}] "
+            f"table, so there is nothing to pull from. Add [{SOURCE_SECTION}] with "
+            f"{PLATFORM_KEY} and {CREDENTIAL_KEY}, plus whatever key the connector "
+            "needs to name the account, and pulling works with no write credential "
+            "anywhere near the machine."
+        )
+    if not isinstance(section, dict):
+        raise PlatformError(f"[{SOURCE_SECTION}] must be a table")
+    return (
+        _require_text(section, SOURCE_SECTION, PLATFORM_KEY, "a registered platform name"),
+        _require_text(
+            section, SOURCE_SECTION, CREDENTIAL_KEY, "the name of an environment variable"
+        ),
     )
 
 
@@ -179,28 +238,46 @@ def declared_publish_keys() -> set[str]:
     vocabulary freeze reads, so a connector that adds a key and does not declare
     it here is a connector whose key nothing reviews.
     """
+    return _declared(PUBLISH_SECTION, DECLARED_KEYS)
+
+
+def declared_source_keys() -> set[str]:
+    """The same inventory for [source], and the reason the convention is two calls.
+
+    A connector's reading key is exactly as invisible to review as its publishing
+    key was, and for the same reason: it is read through a module constant, so no
+    string literal under src/ spells it where an AST walk could find it.
+    """
+    return _declared(SOURCE_SECTION, DECLARED_SOURCE_KEYS)
+
+
+def _declared(section: str, attribute: str) -> set[str]:
     names = {
-        PUBLISH_SECTION,
-        f"{PUBLISH_SECTION}.{PLATFORM_KEY}",
-        f"{PUBLISH_SECTION}.{CREDENTIAL_KEY}",
+        section,
+        f"{section}.{PLATFORM_KEY}",
+        f"{section}.{CREDENTIAL_KEY}",
     }
     for connector in PLATFORMS.values():
-        for key in getattr(connector, DECLARED_KEYS, ()):
-            names.add(f"{PUBLISH_SECTION}.{key}")
+        for key in getattr(connector, attribute, ()):
+            names.add(f"{section}.{key}")
     return names
 
 
-def _require_text(section: dict, key: str, hint: str) -> str:
+def _require_text(section: dict, table: str, key: str, hint: str) -> str:
     """A non-empty string, or a PlatformError naming the key and what belongs in it.
 
     A bool is rejected before the isinstance check can matter, on the same argument
     config._require_number makes: TOML has a bool literal, an operator can type one
     anywhere, and a value coerced with str() becomes a plausible looking name that
     matches no registered platform and no environment variable.
+
+    The table is a parameter rather than a constant because the same two keys are
+    written in two tables now, and a message that names the wrong one sends an
+    operator to edit a table that is already correct.
     """
     value = section.get(key)
     if isinstance(value, bool) or not isinstance(value, str) or not value.strip():
-        raise PlatformError(f"{PUBLISH_SECTION}.{key} must be a non-empty string ({hint})")
+        raise PlatformError(f"{table}.{key} must be a non-empty string ({hint})")
     return value
 
 
