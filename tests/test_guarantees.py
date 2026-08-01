@@ -847,6 +847,13 @@ CONFIG_SCHEMA = frozenset(
         "publish",
         "publish.platform",
         "publish.credential_env",
+        # A connector's own key, declared by that connector through the registry's
+        # PUBLISH_KEYS convention. It was shipped and documented for a whole
+        # release while neither the allowlist nor the denylist could see it: the
+        # connector read it through a module constant, so nothing here knew the
+        # key existed and this freeze passed over it while claiming to have read
+        # the entire config format.
+        "publish.page_id",
     }
 )
 
@@ -924,27 +931,71 @@ def test_no_setting_the_package_reads_could_stand_in_for_a_keystroke() -> None:
 
 
 def test_the_declared_config_schema_holds_no_such_key() -> None:
-    from commentdraft.config import REQUIRED
+    """Both halves of the declaration, the loader's and the connectors'.
 
-    declared = [section for section in REQUIRED] + [
-        f"{section}.{key}" for section, keys in REQUIRED.items() for key in keys
-    ]
+    A connector declares its own [publish] keys now, which means a connector is a
+    place a bypass shaped key could be declared. It was not one before because
+    there was no declaration to read.
+    """
+    from commentdraft.config import REQUIRED
+    from commentdraft.platforms import declared_publish_keys
+
+    declared = (
+        [section for section in REQUIRED]
+        + [f"{section}.{key}" for section, keys in REQUIRED.items() for key in keys]
+        + sorted(declared_publish_keys())
+    )
     offenders = [name for name in declared if BYPASS_KEY.search(name.rsplit(".", 1)[-1])]
-    assert offenders == [], f"config.REQUIRED declares an approval bypass: {offenders}"
+    assert offenders == [], f"the declared config schema holds an approval bypass: {offenders}"
 
 
 def _declared_schema() -> set[str]:
     from commentdraft.config import REQUIRED
-    from commentdraft.platforms import CREDENTIAL_KEY, PLATFORM_KEY, PUBLISH_SECTION
+    from commentdraft.platforms import declared_publish_keys
 
     names = set(REQUIRED)
     names |= {f"{section}.{key}" for section, keys in REQUIRED.items() for key in keys}
-    names |= {
-        PUBLISH_SECTION,
-        f"{PUBLISH_SECTION}.{PLATFORM_KEY}",
-        f"{PUBLISH_SECTION}.{CREDENTIAL_KEY}",
-    }
+    # The [publish] table asks the registry rather than naming the two keys it
+    # used to know about. A connector's own keys were invisible here, so a shipped
+    # key could sit outside the frozen vocabulary and this file would report the
+    # format as fully reviewed.
+    names |= declared_publish_keys()
     return names
+
+
+def test_a_connector_key_nobody_declared_is_invisible_to_the_freeze() -> None:
+    """The mechanism, on the case that motivated it.
+
+    page_id is read through a module constant, so no string literal under src/
+    spells it where an AST walk could find it. The only thing that can make it
+    visible is the connector saying so, and this asserts the saying rather than
+    the fact that today's connector happens to say it correctly.
+    """
+    from commentdraft.platforms import DECLARED_KEYS, PLATFORMS, declared_publish_keys
+
+    assert "publish.page_id" in declared_publish_keys()
+
+    class Undeclared:
+        pass
+
+    class Declared:
+        PUBLISH_KEYS = ("board_id",)
+
+    PLATFORMS["_undeclared_for_this_test"] = Undeclared
+    PLATFORMS["_declared_for_this_test"] = Declared
+    try:
+        found = declared_publish_keys()
+    finally:
+        del PLATFORMS["_undeclared_for_this_test"]
+        del PLATFORMS["_declared_for_this_test"]
+
+    assert "publish.board_id" in found, "a declared key did not reach the vocabulary"
+    assert getattr(Undeclared, DECLARED_KEYS, None) is None
+    # And a key nobody declared is exactly as invisible as it was before, which is
+    # the honest statement of what this convention buys: it makes declaring
+    # possible, and test_the_config_vocabulary_is_exactly_the_reviewed_list is
+    # what makes a shipped config carrying an undeclared key fail.
+    assert "publish.board_id" not in _declared_schema()
 
 
 def _shipped_schema() -> set[str]:

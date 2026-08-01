@@ -61,6 +61,15 @@ class PlatformHalt(BaseException):
 PUBLISHED_ID = "published_id"
 
 
+# The class attribute a connector uses to declare the [publish] keys it reads
+# beyond the two every connector has. Without it a connector's own keys are
+# invisible to the vocabulary freeze in tests/test_guarantees.py, which then
+# passes over them without seeing them: `publish.page_id` was shipped and
+# documented for a whole release while the test that freezes the config format
+# had no way to know it existed.
+DECLARED_KEYS = "PUBLISH_KEYS"
+
+
 @runtime_checkable
 class Platform(Protocol):
     """What a connector implements. Kept minimal on purpose.
@@ -160,6 +169,25 @@ def publish_target(cfg: dict) -> tuple[str, str]:
         _require_text(section, PLATFORM_KEY, "a registered platform name"),
         _require_text(section, CREDENTIAL_KEY, "the name of an environment variable"),
     )
+
+
+def declared_publish_keys() -> set[str]:
+    """Every [publish] key the config format has, as dotted names.
+
+    The two the registry owns, plus whatever each registered connector declares
+    through the class attribute named by DECLARED_KEYS. This is what the config
+    vocabulary freeze reads, so a connector that adds a key and does not declare
+    it here is a connector whose key nothing reviews.
+    """
+    names = {
+        PUBLISH_SECTION,
+        f"{PUBLISH_SECTION}.{PLATFORM_KEY}",
+        f"{PUBLISH_SECTION}.{CREDENTIAL_KEY}",
+    }
+    for connector in PLATFORMS.values():
+        for key in getattr(connector, DECLARED_KEYS, ()):
+            names.add(f"{PUBLISH_SECTION}.{key}")
+    return names
 
 
 def _require_text(section: dict, key: str, hint: str) -> str:

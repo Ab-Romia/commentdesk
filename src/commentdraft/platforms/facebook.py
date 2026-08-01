@@ -693,6 +693,14 @@ class Facebook:
     carries nothing between calls and holds no credential of its own.
     """
 
+    # The [publish] keys this connector reads beyond the two every connector has,
+    # declared where the registry can see them. Without this the key is real,
+    # shipped and documented, and invisible to the test that freezes the config
+    # vocabulary, which then passes over it while claiming to have read the whole
+    # format. The constant below and this tuple are the same fact written twice on
+    # purpose: one is what the code reads, the other is what review reads.
+    PUBLISH_KEYS = (PAGE_KEY,)
+
     def fetch_comments(self, config: dict, since: str | None = None) -> list[dict]:
         """Every comment on the Page's own posts, in engine.IN_FIELDS shape.
 
