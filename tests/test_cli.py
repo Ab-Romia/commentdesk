@@ -6,6 +6,7 @@ from typing import ClassVar
 import pytest
 
 from commentdraft.cli import format_trace, main, safe_name
+from conftest import scripted_reviewer
 
 CONFIG = """
 [product]
@@ -529,10 +530,15 @@ def registered_platform(monkeypatch):
 
 @pytest.fixture
 def at_a_keyboard(monkeypatch):
-    """Say that a person is at the terminal, which pytest's stdin is not."""
-    from commentdraft import cli
+    """Say that a person is at the terminal, which pytest's stdin is not.
 
-    monkeypatch.setattr(cli, "_at_a_keyboard", lambda: True)
+    Patched on the gate, which is where the predicate now lives and where the
+    refusal that matters is made. cmd_publish imports it at call time, so this
+    covers both the early refusal and the one inside the gate.
+    """
+    from commentdraft import approve
+
+    monkeypatch.setattr(approve, "at_a_keyboard", lambda: True)
 
 
 def build_publishable(tmp_path, extra=PUBLISH_CONFIG):
@@ -654,9 +660,9 @@ def test_publish_sends_one_reply_per_keystroke_and_records_it(
     monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
     config, out = build_publishable(tmp_path)
     pressed = iter(["y"])
-    monkeypatch.setattr("builtins.input", lambda: next(pressed))
 
-    rc = main(["publish", "--config", str(config), "--out", str(out)])
+    with scripted_reviewer(lambda: next(pressed)):
+        rc = main(["publish", "--config", str(config), "--out", str(out)])
 
     assert rc == 0
     assert FixturePlatform.calls == [("1", "eighteen dollars")]

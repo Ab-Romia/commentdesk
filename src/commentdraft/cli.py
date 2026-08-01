@@ -281,18 +281,6 @@ def cmd_ui(args) -> int:
     return 0
 
 
-def _at_a_keyboard() -> bool:
-    """True when there is a person at the other end of this process's stdin.
-
-    `yes | commentdraft publish` is the exact failure the four keys were chosen
-    to prevent, and a pipe answers a prompt faster than any finger can. Nothing
-    at the far end of a redirect can read a reply, so nothing there can approve
-    one, and the refusal belongs before the first row rather than after the
-    fortieth send.
-    """
-    return sys.stdin.isatty()
-
-
 def cmd_publish(args) -> int:
     """Hand the drafted replies to a person, one at a time, and send what they approve.
 
@@ -301,6 +289,12 @@ def cmd_publish(args) -> int:
     whether anybody is there to approve anything. A read only setup is the
     recommended starting point, so the message for one has to describe the setup
     rather than read as a fault.
+
+    The credential check and the terminal check are made here for that ordering
+    and made again inside the gate, which is where they are load bearing. This is
+    not belt and braces: the gate cannot trust a caller, and this caller wants to
+    report the reasons in an order that is useful rather than in the order the
+    gate happens to reach them.
     """
     try:
         cfg = load_config(args.config)
@@ -311,12 +305,14 @@ def cmd_publish(args) -> int:
 
     # Lazy, on the same rule as cmd_ui: a subcommand's dependencies load when that
     # subcommand runs, so importing this module still touches nothing.
-    from .approve import approve_and_publish
-    from .platforms import PlatformError, get_platform, publish_target
+    from .approve import GateError, approve_and_publish, at_a_keyboard
+    from .platforms import PlatformError, find_platform, get_platform, publish_target
 
     try:
         platform_name, credential_env = publish_target(cfg)
-        platform = get_platform(platform_name)
+        # Looked up, not built. A name nobody registered is worth saying now, and
+        # a connector's constructor is not worth running before the refusals below.
+        find_platform(platform_name)
     except PlatformError as e:
         return _fail(str(e))
 
@@ -344,22 +340,38 @@ def cmd_publish(args) -> int:
     # Last, because it is the only refusal that is about how the command was
     # invoked rather than about how the operator's setup is written, and the
     # other three are more useful to hear first.
-    if not args.dry_run and not _at_a_keyboard():
+    if not args.dry_run and not at_a_keyboard():
         return _fail(
             "publish needs a terminal: every reply is approved one keystroke at a time, "
             "and a pipe or a redirect cannot read a reply. Run it from a terminal, or "
             "use --dry-run to see what would be sent."
         )
 
-    counts = approve_and_publish(
-        rows,
-        cfg,
-        platform,
-        platform_name=platform_name,
-        config_label=str(args.config),
-        log_path=Path(args.out) / "published.jsonl",
-        dry_run=args.dry_run,
-    )
+    # Built here and nowhere earlier: after every refusal above, and never at all
+    # for a dry run. A connector's __init__ is somebody else's code, and running
+    # it during the one command documented as needing no credential and no
+    # keystroke would make that documentation false without a single send.
+    platform = None
+    if not args.dry_run:
+        try:
+            platform = get_platform(platform_name)
+        except PlatformError as e:
+            return _fail(str(e))
+
+    try:
+        counts = approve_and_publish(
+            rows,
+            cfg,
+            platform,
+            platform_name=platform_name,
+            config_label=str(args.config),
+            log_path=Path(args.out) / "published.jsonl",
+            dry_run=args.dry_run,
+        )
+    except GateError as e:
+        # The gate refuses for the same two reasons this function does, so an
+        # operator only reaches this line by calling in a way that skipped them.
+        return _fail(str(e))
     # Non-zero when a send was refused by the platform, or made and not written
     # down, on the same rule as a run that lost rows: a scripted caller must not
     # mistake a partial pass for a clean one. A reply the reviewer skipped is not

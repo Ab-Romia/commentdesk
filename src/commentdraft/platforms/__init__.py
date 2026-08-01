@@ -70,21 +70,32 @@ def register(name: str) -> Callable[[type], type]:
     return decorator
 
 
+def find_platform(name: str) -> type:
+    """The connector class registered under `name`, or a PlatformError naming what is.
+
+    Lookup is separate from construction because a caller has refusals to make
+    between the two. `commentdraft publish` needs to say "unknown platform" before
+    it asks about a credential, and it must not run a connector's constructor
+    before it knows there is a credential, a queue and a person at the terminal.
+    Nothing here builds anything, so a name can be checked for free.
+    """
+    connector = PLATFORMS.get(name)
+    if connector is None:
+        registered = ", ".join(sorted(PLATFORMS)) or "none"
+        raise PlatformError(f"unknown platform: {name}. registered: {registered}")
+    return connector
+
+
 def get_platform(name: str) -> Platform:
     """The connector registered under `name`, built, or a PlatformError naming what is.
 
     The interface check happens here rather than in register, and it is a runtime
     protocol check rather than a list of method names, so that adding a method to
     Platform cannot leave a second list behind to drift out of step with it. A
-    connector missing half the interface is caught at lookup, which is before the
-    first row is read, rather than at the moment of the send, which is the worst
-    possible time to find out.
+    connector missing half the interface is caught before the first prompt rather
+    than at the moment of the send, which is the worst possible time to find out.
     """
-    connector = PLATFORMS.get(name)
-    if connector is None:
-        registered = ", ".join(sorted(PLATFORMS)) or "none"
-        raise PlatformError(f"unknown platform: {name}. registered: {registered}")
-    instance = connector()
+    instance = find_platform(name)()
     if not isinstance(instance, Platform):
         raise PlatformError(
             f"the connector registered as {name} does not implement the platform "

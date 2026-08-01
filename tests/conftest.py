@@ -5,6 +5,8 @@ Paths are computed from this file, never from the working directory, so the suit
 behaves the same under `pytest`, `pytest tests/some_test.py`, and an editor runner.
 """
 
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -72,6 +74,32 @@ model = "vendor/model-b"
 pricing = { input_per_mtok = 0.09, cached_per_mtok = 0.018, output_per_mtok = 0.18, cache_write_per_mtok = 0.0 }
 params = { reasoning = { enabled = false }, provider = { data_collection = "deny" } }
 """
+
+
+@contextmanager
+def scripted_reviewer(read_key: Callable[[], str]) -> Iterator[None]:
+    """Drive the approval gate with a scripted reviewer, for one test.
+
+    The gate reads its keystroke from the terminal itself: it prints the prompt,
+    discards whatever the terminal had buffered before the reply was readable, and
+    reads one byte in cbreak mode. None of that can happen under a test runner, and
+    the seam that used to let a test past it was a public keyword parameter, which
+    meant any script that imported the package could pass `lambda: "y"` and publish
+    a whole queue unattended.
+
+    So the seam is a private attribute of the gate, honoured only while a test
+    runner is in sys.modules, and this is the only supported way to reach it. It is
+    installed and removed around one test rather than left set, because a scripted
+    reviewer leaking into another test is a test that proves the wrong thing.
+    """
+    from commentdraft import approve
+
+    previous = approve._scripted_keys
+    approve._scripted_keys = read_key
+    try:
+        yield
+    finally:
+        approve._scripted_keys = previous
 
 
 @pytest.fixture

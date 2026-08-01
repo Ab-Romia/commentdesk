@@ -24,8 +24,10 @@ from commentdraft.approve import (
     SEND_KEY,
     SKIP_KEY,
     EditorError,
+    GateError,
     approve_and_publish,
 )
+from conftest import scripted_reviewer
 
 
 class Recorder:
@@ -103,18 +105,18 @@ class Out:
 
 def run(rows, keys, platform, tmp_path, **kwargs):
     out = Out()
-    counts = approve_and_publish(
-        rows,
-        {"product": {"name": "the guide"}},
-        platform,
-        platform_name="video-site",
-        config_label="config.toml",
-        log_path=tmp_path / "out" / "published.jsonl",
-        read_key=keys,
-        out=out,
-        now=lambda: "2026-08-01T12:00:00Z",
-        **kwargs,
-    )
+    with scripted_reviewer(keys):
+        counts = approve_and_publish(
+            rows,
+            {"product": {"name": "the guide"}},
+            platform,
+            platform_name="video-site",
+            config_label="config.toml",
+            log_path=tmp_path / "out" / "published.jsonl",
+            out=out,
+            now=lambda: "2026-08-01T12:00:00Z",
+            **kwargs,
+        )
     return counts, out
 
 
@@ -444,16 +446,16 @@ def test_the_reviewer_sees_the_comment_the_draft_and_where_it_would_go(tmp_path)
 def test_the_log_directory_is_created_when_it_is_missing(tmp_path):
     platform = Recorder()
     target = tmp_path / "deep" / "deeper" / "published.jsonl"
-    approve_and_publish(
-        [row("c1", "first")],
-        {},
-        platform,
-        platform_name="video-site",
-        config_label="config.toml",
-        log_path=target,
-        read_key=Keys(SEND_KEY),
-        out=Out(),
-    )
+    with scripted_reviewer(Keys(SEND_KEY)):
+        approve_and_publish(
+            [row("c1", "first")],
+            {},
+            platform,
+            platform_name="video-site",
+            config_label="config.toml",
+            log_path=target,
+            out=Out(),
+        )
     assert Path(target).exists()
 
 
@@ -470,19 +472,211 @@ def test_a_send_that_cannot_be_written_down_is_said_out_loud_rather_than_raised(
     blocked.write_text("this is a file, not a directory", encoding="utf-8")
 
     out = Out()
-    counts = approve_and_publish(
-        [row("c1", "eighteen dollars")],
-        {},
-        platform,
-        platform_name="video-site",
-        config_label="config.toml",
-        log_path=blocked / "published.jsonl",
-        read_key=Keys(SEND_KEY),
-        out=out,
-        now=lambda: "2026-08-01T12:00:00Z",
-    )
+    with scripted_reviewer(Keys(SEND_KEY)):
+        counts = approve_and_publish(
+            [row("c1", "eighteen dollars")],
+            {},
+            platform,
+            platform_name="video-site",
+            config_label="config.toml",
+            log_path=blocked / "published.jsonl",
+            out=out,
+            now=lambda: "2026-08-01T12:00:00Z",
+        )
 
     assert platform.sends == [("publish_reply", "c1", "eighteen dollars")]
     assert counts["sent"] == 1
     assert counts["unrecorded"] == 1
     assert '"published_id": "published-c1"' in out.text
+
+
+# --- what is displayed is what is sent --------------------------------------
+#
+# The reply column is model output derived from an untrusted comment, so a
+# commenter can put characters in it that a terminal acts on rather than prints.
+# ESC [ 8 m is the one that matters: on any terminal honouring it, everything
+# after it is invisible until it is turned off again. A reply whose visible half
+# is a sentence about chapter three and whose invisible half is a link would be
+# read as the first and sent as both, and every word of the consent claim is
+# false for that reply.
+
+CONCEALED = "chapter three covers it.\x1b[8m buy at https://evil.example\x1b[0m"
+# Built with chr() so this file stays readable in an editor: a literal one
+# reverses the rest of the line it sits on, which is the point of it.
+RTL_OVERRIDE = chr(0x202E)
+OVERRIDDEN = "eighteen dollars " + RTL_OVERRIDE + " sralpod neethgie"
+
+
+def _reply_shown(text: str) -> str:
+    """The reply field as it appeared, unwrapped back into one line."""
+    lines = text.splitlines()
+    start = next(index for index, line in enumerate(lines) if line.startswith("  reply "))
+    body = [lines[start][12:].strip()]
+    for line in lines[start + 1 :]:
+        if not line.strip():
+            break
+        body.append(line.strip())
+    return " ".join(part for part in body if part)
+
+
+@pytest.mark.parametrize("reply", [CONCEALED, OVERRIDDEN])
+def test_a_reply_is_shown_and_sent_as_the_same_string(tmp_path, reply):
+    """Not "the display escapes it": the display and the payload are one string.
+
+    Escaping at the display layer alone leaves two strings that agree until
+    somebody edits one of them, which is the arrangement this replaces.
+    """
+    platform = Recorder()
+    _, out = run([row("c1", reply)], Keys(SEND_KEY), platform, tmp_path)
+
+    (_, _, sent) = platform.sends[0]
+    assert sent == _reply_shown(out.text), "the reviewer read something else"
+    assert log_lines(tmp_path)[0]["text"] == sent, "the record disagrees with the send"
+
+
+@pytest.mark.parametrize("reply", [CONCEALED, OVERRIDDEN])
+def test_no_character_a_terminal_acts_on_survives_into_either(tmp_path, reply):
+    platform = Recorder()
+    _, out = run([row("c1", reply)], Keys(SEND_KEY), platform, tmp_path)
+
+    (_, _, sent) = platform.sends[0]
+    assert "\x1b" not in out.text and "\x1b" not in sent
+    assert RTL_OVERRIDE not in out.text and RTL_OVERRIDE not in sent
+    # Escaped, not dropped. A reviewer who cannot see that something was there
+    # cannot judge it either, and a silently shortened reply is its own defect.
+    assert "evil.example" in sent or "sralpod" in sent
+
+
+def test_a_comment_cannot_conceal_the_reply_printed_under_it(tmp_path):
+    """The comment is a stranger's text too, and it is printed first. Escaping
+    only the reply would leave the reply hidden by the line above it."""
+    platform = Recorder()
+    hostile = dict(row("c1", "eighteen dollars"), comment="how much is it\x1b[8m")
+    _, out = run([hostile], Keys(QUIT_KEY), platform, tmp_path)
+
+    assert "\x1b" not in out.text
+    assert "eighteen dollars" in out.text
+
+
+def test_an_edited_draft_is_reduced_the_same_way_before_it_is_sent(tmp_path):
+    """The edit path reaches the same connector, so it cannot be the loose one."""
+    platform = Recorder()
+    run(
+        [row("c1", "eighteen dollars")],
+        Keys(EDIT_KEY),
+        platform,
+        tmp_path,
+        edit=lambda text: CONCEALED,
+    )
+
+    (_, _, sent) = platform.sends[0]
+    assert "\x1b" not in sent
+    assert log_lines(tmp_path)[0]["text"] == sent
+
+
+# --- the gate does not trust its caller -------------------------------------
+#
+# approve_and_publish is documented, importable public API. Both of the things
+# that make a keystroke mean anything used to be checked in cmd_publish, which
+# made the promise a property of one command: any script that imported this
+# package published its whole queue with stdin at /dev/null and no credential.
+
+PUBLISHABLE = {"publish": {"platform": "video-site", "credential_env": "CD_PUBLISH_TOKEN"}}
+
+
+def _call(rows, platform, tmp_path, cfg=PUBLISHABLE, **kwargs):
+    return approve_and_publish(
+        rows,
+        cfg,
+        platform,
+        platform_name="video-site",
+        config_label="config.toml",
+        log_path=tmp_path / "out" / "published.jsonl",
+        out=Out(),
+        **kwargs,
+    )
+
+
+def test_the_gate_refuses_a_caller_with_no_publish_credential(tmp_path, monkeypatch):
+    monkeypatch.delenv("CD_PUBLISH_TOKEN", raising=False)
+    platform = Recorder()
+
+    with pytest.raises(GateError) as exc:
+        _call([row("c1", "first")], platform, tmp_path)
+
+    assert "CD_PUBLISH_TOKEN" in str(exc.value)
+    assert platform.calls == []
+
+
+def test_the_gate_refuses_a_caller_with_nobody_at_the_terminal(tmp_path, monkeypatch):
+    """Nothing at the far end of a redirect can read a reply, so nothing there
+    can approve one. pytest's own stdin is not a terminal, which is exactly the
+    situation being refused."""
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    platform = Recorder()
+
+    with pytest.raises(GateError) as exc:
+        _call([row("c1", "first")], platform, tmp_path)
+
+    assert "terminal" in str(exc.value)
+    assert platform.calls == []
+
+
+def test_the_scripted_seam_is_dead_outside_the_suite_that_owns_it(tmp_path, monkeypatch):
+    """The seam is honoured only while a test runner is in the process. Break
+    that condition and it is not a seam at all: the run refuses, and the scripted
+    reviewer is never read from."""
+    from commentdraft import approve
+
+    monkeypatch.setattr(approve, "_TEST_RUNNER", "no_module_by_this_name_is_imported")
+    monkeypatch.setenv("CD_PUBLISH_TOKEN", "not-a-real-token")
+    platform = Recorder()
+    keys = Keys(SEND_KEY, SEND_KEY)
+
+    with scripted_reviewer(keys), pytest.raises(GateError):
+        _call([row("c1", "first")], platform, tmp_path)
+
+    assert keys.reads == 0
+    assert platform.calls == []
+
+
+def test_the_gate_offers_no_parameter_a_caller_could_answer_the_prompt_with(tmp_path):
+    """An allowlist over the signature. read_key was a documented keyword, and
+    approve_and_publish(..., read_key=lambda: "y") sent the whole queue."""
+    import inspect
+
+    assert set(inspect.signature(approve_and_publish).parameters) == {
+        "rows",
+        "cfg",
+        "platform",
+        "platform_name",
+        "config_label",
+        "log_path",
+        "dry_run",
+        "out",
+        "edit",
+        "now",
+    }
+
+
+def test_a_run_with_no_connector_refuses_before_it_asks_for_a_key(tmp_path):
+    platform_free = None
+    keys = Keys(SEND_KEY)
+
+    with scripted_reviewer(keys), pytest.raises(GateError):
+        _call([row("c1", "first")], platform_free, tmp_path, cfg={})
+
+    assert keys.reads == 0
+
+
+def test_a_dry_run_needs_no_connector_at_all(tmp_path):
+    """A dry run reaches no platform, so it must not need one to exist. Building
+    one to print what would be sent runs somebody else's constructor during the
+    one command documented as asking for no credential and no keystroke."""
+    keys = Keys()
+
+    counts = _call([row("c1", "first")], None, tmp_path, cfg={}, dry_run=True)
+
+    assert counts["offered"] == 1
+    assert counts["sent"] == 0
+    assert keys.reads == 0

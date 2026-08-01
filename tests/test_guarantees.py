@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import MINIMAL_CONFIG_TOML, PACKAGE_ROOT, REPO_ROOT
+from conftest import MINIMAL_CONFIG_TOML, PACKAGE_ROOT, REPO_ROOT, scripted_reviewer
 
 
 def non_ascii_literals(source: str, filename: str) -> list[tuple[int, str]]:
@@ -712,17 +712,17 @@ def _drive(rows, keys, platform, tmp_path, **kwargs):
             raise EOFError
         return pressed.pop(0)
 
-    counts = approve_and_publish(
-        rows,
-        {},
-        platform,
-        platform_name="video-site",
-        config_label="config.toml",
-        log_path=tmp_path / "published.jsonl",
-        read_key=read_key,
-        out=stream,
-        **kwargs,
-    )
+    with scripted_reviewer(read_key):
+        counts = approve_and_publish(
+            rows,
+            {},
+            platform,
+            platform_name="video-site",
+            config_label="config.toml",
+            log_path=tmp_path / "published.jsonl",
+            out=stream,
+            **kwargs,
+        )
     return counts, stream, pressed
 
 
