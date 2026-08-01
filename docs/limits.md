@@ -180,6 +180,25 @@ produces no error message anywhere in this tool. The failure is silent on the
 platform's side, which is exactly why this project goes out of its way to make it
 visible on its own.
 
+## A pull remembers ids, and only in the file you name
+
+`commentdraft pull` leaves out a comment it has already handed over, which is what
+stops a scheduled pull from drafting, billing and queueing the same comment twice.
+The memory is the `--state` file and nothing else: no `--state`, no memory, and every
+pull writes everything it can see. That is said on the command's own last line rather
+than left to be discovered on an invoice.
+
+Three cases keep a duplicate possible even with a state file, and none of them can be
+fixed from inside this tool: a comment the platform hands over with no id at all,
+which is written every time because dropping it instead would mean somebody never
+gets an answer; a state file deleted, moved, or pointed at a different path; and a
+comment whose id changed on the platform, which is a new comment as far as anything
+here can tell. `docs/configuration.md` covers each one where the flags are documented.
+
+The state file also grows by one line per comment ever pulled and never shrinks by
+itself. That is deliberate, it is what makes the suppression exact rather than
+approximate, and twenty thousand comments is still a few hundred kilobytes.
+
 ## A run overwrites its own output
 
 Writing the review CSV opens the output path for writing. Running the same command
@@ -195,8 +214,9 @@ marketplace. Posting itself exists, and costs one keystroke per reply:
 nothing is published that a person has not approved that way. What is not built, and
 will not be, is any route that sends a reply nobody looked at, which is why there is
 no batch mode, no `--yes` and no approval column. A publish credential is held only
-when an operator configures one in a `[publish]` table, and a config without that
-table is a read only deployment and the recommended way to start.
+when an operator configures one in a `[publish]` table, and a config with a `[source]`
+table and no `[publish]` table is a read only deployment: it pulls comments and drafts
+replies for them, it cannot send one, and it is the recommended way to start.
 
 Language packs are the one item on this list with an unusual
 reason: nothing in the engine inspects, detects or adapts to the language you write

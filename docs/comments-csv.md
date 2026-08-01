@@ -15,6 +15,27 @@ id,platform,author,comment,post_title
 are both real files in this shape, and
 `tests/fixtures/nazzef-kit-ar/comments.csv` is the same shape written in Arabic.
 
+## Where the file comes from
+
+Two ways, and the format is the same either way.
+
+Export it yourself, from whatever the platform gives you, and keep the five columns
+below. Or let `commentdraft pull` write it:
+
+```bash
+commentdraft pull --config config.toml --out comments.csv --state pull-state.json
+commentdraft run  --config config.toml --comments comments.csv --out out
+```
+
+`pull` reads the platform named in the `[source]` table of your config and writes
+exactly these columns, so nothing needs editing between the two commands. It needs a
+read credential and no write credential at all. `--state` is what stops a scheduled
+pull from writing the same comment twice; `docs/configuration.md` covers the table,
+the flags, and the cases where a duplicate is still possible.
+
+A pull that found nothing new writes the header and no rows, and `run` over that file
+refuses it by name rather than drafting nothing quietly.
+
 ## The columns
 
 | Column | Required | What it does |

@@ -15,7 +15,8 @@ flowchart TD
     EX[prompts/examples.md] --> REN
     REN --> PRE[system prefix]
     KB[knowledge document] --> PRE
-    CSV[comments.csv] --> LOOP[one call per row]
+    PLAT[a platform, read by commentdraft pull] --> CSV[comments.csv]
+    CSV --> LOOP[one call per row]
     PRE --> LOOP
     LOOP --> PARSE[parse and sanitize]
     PARSE --> OUT[review.csv]

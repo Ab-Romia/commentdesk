@@ -88,6 +88,27 @@ you pass after reading every row and not before:
 commentdraft review out/review.csv --out out --approved
 ```
 
+Both of those commands read a CSV. You can export one yourself, or, once a config
+names a platform to read, have `commentdraft pull` write it:
+
+```bash
+commentdraft pull --config config.toml --out comments.csv --state pull-state.json
+commentdraft run  --config config.toml --comments comments.csv --out out
+```
+
+That is the loop end to end: pull, run, review, publish. `pull` needs a read
+credential and nothing else. A config with a `[source]` table and no `[publish]`
+table reads comments and drafts replies for them and cannot publish anything at
+all, which is the posture to start in while a platform decides whether to grant a
+write scope, and the posture some people should stay in.
+
+`--state` is what keeps a scheduled pull from drafting the same comment twice: a
+small JSON file holding every comment id pulled so far, and a comment already in it
+is never written a second time. Without it, every pull writes every comment it can
+see, every time, and the command says so rather than leaving it to a bill.
+`docs/configuration.md` covers the table, the flags, and the cases where a duplicate
+is still possible.
+
 Two more things you will want on day one:
 
 ```bash
@@ -147,8 +168,10 @@ this tool talks to.
 
 ## What it deliberately does not do
 
-- **It does not queue, schedule, or send anything on its own.** No connector for any
-  platform ships today. The code that will send one exists, in exactly one module,
+- **It does not queue, schedule, or send anything on its own.** One connector ships,
+  for Facebook Pages, and reading and publishing through it are separate tables in
+  the config holding separate credentials: `commentdraft pull` reads with the first
+  and can write nothing at all. The code that sends exists in exactly one module,
   and reaching it costs one keystroke per reply. `commentdraft publish` shows you one
   comment and one draft at a time and waits: `y` sends that one, `e` opens it in
   `$EDITOR` and sends what comes back, `s` skips, `q` stops, and Enter does nothing

@@ -106,12 +106,93 @@ Every entry inherits only `base_url` and `api_key_env` from `[model]`, never
 `pricing`, on purpose. `docs/bakeoff.md` is the full chapter on this table, including
 why the inheritance rule is that narrow and how to run and read a comparison.
 
+## `[source]`
+
+Absent by default, and the table `commentdraft pull` reads. Adding it turns reading
+on and nothing else: a config with a `[source]` table and no `[publish]` table pulls
+comments, drafts replies for them, renders the review page, and cannot publish
+anything at all.
+
+That combination is the recommended place to start, and it is a place the config
+could not describe until this table existed. Platforms grant reading and writing as
+separate scopes, weeks apart, and the Page a connector reads used to be named in
+`[publish]`, so pulling a single comment required writing down a write credential
+nobody had been granted yet.
+
+| Key | Required | What it does |
+|---|---|---|
+| `platform` | yes | the name of a registered connector. `facebook` is the one that ships. An unregistered name is refused before a credential is asked for, and the message lists what is registered. |
+| `credential_env` | yes | the name of an environment variable holding the read token, never the token itself, on the same rule as `model.api_key_env` |
+| `page_id` | yes, for `facebook` | the numeric id of the Facebook Page to read comments from |
+
+Keys beyond the first two belong to whichever connector you named, and only that
+connector reads them. `page_id` is Facebook's.
+
+A config written before this table existed keeps pulling. With no `[source]` table,
+`commentdraft pull` reads `[publish]` instead: the same platform name, the same
+credential variable and the same `page_id`. The fallback runs one way only.
+`commentdraft publish` never reads `[source]`, so a token granted for reading cannot
+become the token something writes with by being pointed at from the other side.
+
+### Pulling twice
+
+`commentdraft pull --config config.toml --out comments.csv` writes the file
+`commentdraft run --comments` reads, with nothing to edit in between. Run on a
+schedule, the question that matters is what happens the second time, because a
+comment pulled twice is drafted twice, billed twice, and offered to a person to
+approve twice.
+
+```bash
+commentdraft pull --config config.toml --out comments.csv --state pull-state.json
+```
+
+`--state` names a small JSON file holding the platform it was written for, the
+`--since` marker last used, and the id of every comment the platform has handed over
+while that file has existed. A comment whose id is in it is left out of the CSV. So a
+second pull over unchanged comments writes none of them: it prints how many were read,
+how many were left out, and leaves `comments.csv` holding its header and nothing else,
+which `commentdraft run` then refuses by name rather than drafting an empty file.
+
+The file grows by one line per comment ever pulled and never shrinks by itself.
+Twenty thousand comments is a few hundred kilobytes. Delete it to start that platform
+over, and keep one per platform: pulling two platforms through one file would have
+each of them read the other's ids as its own. A file written for another platform is
+refused rather than merged.
+
+`--since` narrows what the connector asks the platform for at all, which is what keeps
+a scheduled pull cheap in API calls. The shape is the connector's to define; the
+Facebook connector reads an ISO 8601 time such as `2026-08-01T09:30:00+0000` and
+refuses a marker it cannot read rather than silently reading the whole window again.
+A marker typed on the command line wins over the one in the state file and is then
+written back to it, so it is typed once.
+
+Duplicates are still possible in exactly these cases, and each is a case where nothing
+could have known better:
+
+- **No `--state` file.** Every pull writes every comment it can see, every time. The
+  command says so on its last line rather than leaving it to be discovered.
+- **A comment the platform hands over with no id.** There is nothing to remember it
+  by, so it is written every time. The alternative is dropping a comment nobody ever
+  answers, which is worse. The Facebook connector does not produce these: it skips a
+  comment with no id.
+- **A state file that was deleted, moved, or pointed at a different path.** The memory
+  is the file. Nothing else remembers.
+- **A comment that changed id on the platform.** A new id is a new comment as far as
+  anything here can tell.
+
+A pull that could not read one post is not a clean pull. The rows it did read are
+still written, the post that failed is named on standard error, and the exit code is
+1 rather than 0, so a scheduled caller does not read a partial pull as a whole one.
+A pull the platform refused outright writes nothing at all and leaves the state file
+untouched.
+
 ## `[publish]`
 
 Absent by default, and that is the recommended way to start. A config with no
 `[publish]` table cannot publish anything at all, which is a real deployment rather
-than a degraded one: `commentdraft run` still drafts, `commentdraft review` still
-renders, and there is no write credential anywhere near the machine.
+than a degraded one: `commentdraft pull` still reads, `commentdraft run` still drafts,
+`commentdraft review` still renders, and there is no write credential anywhere near
+the machine.
 
 Adding the table turns `commentdraft publish` on. It does not turn anything
 automatic on: every reply still costs one keystroke from a person looking at that
@@ -121,7 +202,7 @@ reply, and `docs/limits.md` says why there is no flag that changes it.
 |---|---|---|
 | `platform` | yes | the name of a registered connector. `facebook` is the one that ships. An unregistered name is refused before a credential is asked for, and the message lists what is registered. |
 | `credential_env` | yes | the name of an environment variable holding the platform token, never the token itself, on the same rule as `model.api_key_env` |
-| `page_id` | yes, for `facebook` | the numeric id of your Facebook Page |
+| `page_id` | no | where the Page id used to live. It belongs in `[source]` now, because reading is what uses it, and it is still honoured here so that a config written before `[source]` existed goes on pulling. Publishing does not read it: a reply is sent to the id of the comment it answers. |
 
 Keys beyond the first two belong to whichever connector you named, and only that
 connector reads them. `page_id` is Facebook's.
@@ -134,10 +215,15 @@ answer a user token with an empty list and HTTP 200, so a Page with plenty of
 comments reads as a Page with none and nothing anywhere reports an error. Where a
 call does fail on it, the connector names error 1705 and says so in a sentence.
 
-`page_id` is the Page the connector reads posts and comments from. It is checked for
-shape only, exactly like every other value here: nothing asks whether it names a real
-Page, and a Page id that belongs to somebody other than the token's owner surfaces as
-a permission error from Meta rather than as a config error from this tool.
+`source.page_id` is the Page the connector reads posts and comments from. It is
+checked for shape only, exactly like every other value here: nothing asks whether it
+names a real Page, and a Page id that belongs to somebody other than the token's owner
+surfaces as a permission error from Meta rather than as a config error from this tool.
+
+The same wording applies to `[source].credential_env`. Reading needs
+`pages_read_engagement` and `pages_read_user_content`; publishing also needs
+`pages_manage_engagement`. Both are Page access tokens, and they can be the same
+token: the two tables exist so that they do not have to be.
 
 The token dies on specific events rather than on a clock, and each one has a
 different fix. The connector reads Meta's error subcodes and says which happened. The
