@@ -124,6 +124,7 @@ that the guarantee and the list together say the whole truth.
 | `report.py`, `build_report` | the four lines of the end-of-run report | you, in your terminal |
 | `cli.py` | flag names, help text and startup error messages | you, in your terminal |
 | `ui.py`, `_PAGE` | the local test page's chrome: button labels, section headings and stat labels | you, in the browser |
+| `platforms/facebook.py`, `CAUSES` and the three failure messages `publish_reply` builds | what a Graph API refusal means and what to do about it, and what a write that could not be proved to be a reply did | you, in your terminal |
 
 Nothing on that list is configurable today, and nothing on it enters a drafted reply.
 The first four are sent to the model and are wire format rather than voice: an operator

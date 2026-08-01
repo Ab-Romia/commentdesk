@@ -105,3 +105,46 @@ Optional, and only read by `commentdraft bakeoff`. Each entry needs its own `lab
 Every entry inherits only `base_url` and `api_key_env` from `[model]`, never
 `pricing`, on purpose. `docs/bakeoff.md` is the full chapter on this table, including
 why the inheritance rule is that narrow and how to run and read a comparison.
+
+## `[publish]`
+
+Absent by default, and that is the recommended way to start. A config with no
+`[publish]` table cannot publish anything at all, which is a real deployment rather
+than a degraded one: `commentdraft run` still drafts, `commentdraft review` still
+renders, and there is no write credential anywhere near the machine.
+
+Adding the table turns `commentdraft publish` on. It does not turn anything
+automatic on: every reply still costs one keystroke from a person looking at that
+reply, and `docs/limits.md` says why there is no flag that changes it.
+
+| Key | Required | What it does |
+|---|---|---|
+| `platform` | yes | the name of a registered connector. `facebook` is the one that ships. An unregistered name is refused before a credential is asked for, and the message lists what is registered. |
+| `credential_env` | yes | the name of an environment variable holding the platform token, never the token itself, on the same rule as `model.api_key_env` |
+| `page_id` | yes, for `facebook` | the numeric id of your Facebook Page |
+
+Keys beyond the first two belong to whichever connector you named, and only that
+connector reads them. `page_id` is Facebook's.
+
+### `platform = "facebook"`
+
+`credential_env` has to name a variable holding a **Page** access token, not a user
+access token. This is the mistake that costs the most time: several comment edges
+answer a user token with an empty list and HTTP 200, so a Page with plenty of
+comments reads as a Page with none and nothing anywhere reports an error. Where a
+call does fail on it, the connector names error 1705 and says so in a sentence.
+
+`page_id` is the Page the connector reads posts and comments from. It is checked for
+shape only, exactly like every other value here: nothing asks whether it names a real
+Page, and a Page id that belongs to somebody other than the token's owner surfaces as
+a permission error from Meta rather than as a config error from this tool.
+
+The token dies on specific events rather than on a clock, and each one has a
+different fix. The connector reads Meta's error subcodes and says which happened. The
+one to expect is the 90 day rule: a permission your app has not used for 90 days is
+revoked and has to be granted again by hand. This tool is used in bursts by design,
+so a setup that worked last quarter can stop working with nothing changed anywhere.
+
+Publishing is not settled documentation yet. Read
+`notes/platforms/facebook-connector-report.md` for what a person with real
+credentials still has to confirm before it is.

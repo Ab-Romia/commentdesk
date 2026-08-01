@@ -228,6 +228,7 @@ ENGINE_OWNED_ENGLISH = [
     ("commentdraft.render.review_html", "NEVER_POSTED_NOTE"),
     ("commentdraft.render.review_html", "COLUMNS"),
     ("commentdraft.ui", "_PAGE"),
+    ("commentdraft.platforms.facebook", "CAUSES"),
 ]
 
 
