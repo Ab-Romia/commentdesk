@@ -360,10 +360,11 @@ def cmd_publish(args) -> int:
         log_path=Path(args.out) / "published.jsonl",
         dry_run=args.dry_run,
     )
-    # Non-zero when a send was refused by the platform, on the same rule as a run
-    # that lost rows: a scripted caller must not mistake a partial pass for a
-    # clean one. A reply the reviewer skipped is not a failure.
-    return 1 if counts["failed"] else 0
+    # Non-zero when a send was refused by the platform, or made and not written
+    # down, on the same rule as a run that lost rows: a scripted caller must not
+    # mistake a partial pass for a clean one. A reply the reviewer skipped is not
+    # a failure, because skipping is a decision rather than a fault.
+    return 1 if counts["failed"] or counts["unrecorded"] else 0
 
 
 def cmd_ingest(args) -> int:

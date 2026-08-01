@@ -183,7 +183,7 @@ def approve_and_publish(
     is not the one a caller under test capture is writing to.
     """
     stream: Writer = sys.stdout if out is None else out
-    counts = {"offered": 0, "sent": 0, "skipped": 0, "failed": 0, "held": 0}
+    counts = {"offered": 0, "sent": 0, "skipped": 0, "failed": 0, "held": 0, "unrecorded": 0}
     queue = _queue(rows, platform_name, stream, counts)
     counts["offered"] = len(queue)
     if not queue:
@@ -263,30 +263,48 @@ def _send_approved(
         counts["failed"] += 1
         _line(ledger.stream, f"  not sent: {type(exc).__name__}: {exc}")
         return
-    _record(ledger, approval, published_id)
     counts["sent"] += 1
+    line = _entry(ledger, approval, published_id)
+    try:
+        _record(ledger, line)
+    except OSError as exc:
+        # The reply is already on the platform, so raising here would end the run
+        # with a traceback over a send that did happen, and take the rest of the
+        # queue with it. The line is printed instead, in the form it would have
+        # taken on disk, so the operator can keep it by hand.
+        counts["unrecorded"] += 1
+        _line(ledger.stream, f"  sent, but {ledger.log_path} could not be written: {exc}")
+        _line(ledger.stream, f"  keep this line: {line}")
+        return
     _line(ledger.stream, f"  sent, and the platform called it {published_id}")
 
 
-def _record(ledger: _Ledger, approval: Approval, published_id: str) -> None:
+def _entry(ledger: _Ledger, approval: Approval, published_id: str) -> str:
+    """One audit line, built once so its timestamp is read once."""
+    return json.dumps(
+        {
+            "at": ledger.now(),
+            "platform": ledger.platform_name,
+            "parent_id": approval.parent_id,
+            "published_id": published_id,
+            "text": approval.text,
+            "edited": approval.edited,
+            "config": ledger.config_label,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _record(ledger: _Ledger, line: str) -> None:
     """Append one line to the audit file, after the fact, never before.
 
     Append only, and never read back by this tool. Without it an operator cannot
     answer a complaint about something their own account posted, which is a
     normal thing to be asked and an embarrassing thing to be unable to answer.
     """
-    entry = {
-        "at": ledger.now(),
-        "platform": ledger.platform_name,
-        "parent_id": approval.parent_id,
-        "published_id": published_id,
-        "text": approval.text,
-        "edited": approval.edited,
-        "config": ledger.config_label,
-    }
     ledger.log_path.parent.mkdir(parents=True, exist_ok=True)
     with open(ledger.log_path, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        handle.write(line + "\n")
 
 
 def _queue(
@@ -366,7 +384,8 @@ def _summary(stream: Writer, counts: dict[str, int]) -> None:
     _line(
         stream,
         f"  sent {counts['sent']}, skipped {counts['skipped']}, "
-        f"failed {counts['failed']}, not offered {counts['held']}",
+        f"failed {counts['failed']}, not offered {counts['held']}, "
+        f"unrecorded {counts['unrecorded']}",
     )
 
 

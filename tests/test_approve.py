@@ -455,3 +455,34 @@ def test_the_log_directory_is_created_when_it_is_missing(tmp_path):
         out=Out(),
     )
     assert Path(target).exists()
+
+
+def test_a_send_that_cannot_be_written_down_is_said_out_loud_rather_than_raised(tmp_path):
+    """The reply is already on the platform by the time the record is written.
+
+    Raising here would end the run with a traceback over a send that did happen,
+    take the rest of the queue with it, and leave the operator unable to say
+    which of the earlier sends were written either. The line is printed in the
+    form it would have taken on disk instead, so it can be kept by hand.
+    """
+    platform = Recorder()
+    blocked = tmp_path / "out"
+    blocked.write_text("this is a file, not a directory", encoding="utf-8")
+
+    out = Out()
+    counts = approve_and_publish(
+        [row("c1", "eighteen dollars")],
+        {},
+        platform,
+        platform_name="video-site",
+        config_label="config.toml",
+        log_path=blocked / "published.jsonl",
+        read_key=Keys(SEND_KEY),
+        out=out,
+        now=lambda: "2026-08-01T12:00:00Z",
+    )
+
+    assert platform.sends == [("publish_reply", "c1", "eighteen dollars")]
+    assert counts["sent"] == 1
+    assert counts["unrecorded"] == 1
+    assert '"published_id": "published-c1"' in out.text

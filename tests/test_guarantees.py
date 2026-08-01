@@ -327,6 +327,43 @@ def test_every_send_sits_inside_a_branch_an_explicit_keystroke_reaches(name: str
     assert offenders == [], f"{name} is reachable without a keystroke: {offenders}"
 
 
+LOOPS = (
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)
+
+
+@pytest.mark.parametrize("name", [SEND_FUNCTION, APPROVAL_TYPE])
+def test_no_loop_sits_between_the_keystroke_and_the_send(name: str) -> None:
+    """One keystroke is one reply, and a loop is how one becomes thirty.
+
+    The branch test above is satisfied by `for row in queue: _send_approved(...)`
+    written inside the send branch, which is the shortest path from this design
+    to the one it exists to refuse. So nothing that repeats may sit between the
+    `if` that read the key and the call it guards.
+    """
+    offenders = []
+    for path, node, tree in _call_sites(name):
+        parents = _parents(tree)
+        branch = _guarding_branch(node, parents)
+        if branch is None:
+            continue  # the branch test above already reports this one
+        for ancestor in _ancestors(node, parents):
+            if ancestor is branch:
+                break
+            if isinstance(ancestor, LOOPS):
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT)}:{node.lineno} is inside "
+                    f"{type(ancestor).__name__} at line {getattr(ancestor, 'lineno', '?')}"
+                )
+    assert offenders == [], f"one keystroke could reach more than one send: {offenders}"
+
+
 @pytest.mark.parametrize("name", [SEND_FUNCTION, APPROVAL_TYPE])
 def test_the_send_cannot_be_smuggled_out_of_its_branch_as_a_value(name: str) -> None:
     """A guarded call site is worth nothing if the callable can be handed elsewhere.
