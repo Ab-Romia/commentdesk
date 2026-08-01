@@ -677,6 +677,40 @@ def test_no_caller_in_the_package_supplies_the_gate_a_seam() -> None:
     assert offenders == [], f"a caller under src/ hands the gate its own answer: {offenders}"
 
 
+SEND_MARKER = "THE ONE SEND"
+
+
+def test_the_send_marker_appears_once_in_the_package_and_sits_on_the_send() -> None:
+    """README.md's grep claim, anchored on the send rather than on a filename.
+
+    The claim used to be a grep carrying --exclude=approve.py and
+    --exclude-dir=platforms, which excludes the only two places a send would ever
+    live: it proved the send was not somewhere it had never been, and it would
+    have gone on returning nothing after a second send was added to either of the
+    excluded paths. This marker sits on the line above the call, so the same grep
+    is a real inventory of one, and it moves when the code moves.
+    """
+    hits = [
+        (path, number)
+        for path in _module_paths()
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
+        if SEND_MARKER in line
+    ]
+    located = [f"{path.relative_to(REPO_ROOT)}:{number}" for path, number in hits]
+    assert len(hits) == 1, f"{SEND_MARKER!r} marks {len(hits)} places, not one: {located}"
+
+    path, number = hits[0]
+    assert path == GATE, f"the send marker is outside the approval gate: {located[0]}"
+    (function,) = [
+        node
+        for node in ast.walk(_tree(GATE))
+        if isinstance(node, ast.FunctionDef) and node.name == SEND_FUNCTION
+    ]
+    assert function.lineno <= number <= (function.end_lineno or number), (
+        f"the send marker is not inside {SEND_FUNCTION}: {located[0]}"
+    )
+
+
 def test_no_module_but_the_gate_names_the_scripted_keystroke_seam() -> None:
     """The seam the suite drives the loop with, sealed against installed code.
 

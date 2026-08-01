@@ -187,8 +187,16 @@ new directory, before running the same comments through again.
 
 ## Not built, on purpose
 
-Posting, scheduling, holding platform credentials, a hosted service, a database, and a
-plugin marketplace. Language packs are the one item on this list with an unusual
+Unattended posting, scheduling, a hosted service, a database, and a plugin
+marketplace. Posting itself exists, and costs one keystroke per reply:
+`commentdraft publish` shows one comment and one draft at a time and waits, and
+nothing is published that a person has not approved that way. What is not built, and
+will not be, is any route that sends a reply nobody looked at, which is why there is
+no batch mode, no `--yes` and no approval column. A publish credential is held only
+when an operator configures one in a `[publish]` table, and a config without that
+table is a read only deployment and the recommended way to start.
+
+Language packs are the one item on this list with an unusual
 reason: nothing in the engine inspects, detects or adapts to the language you write
 in, so there is no language setting for a pack to fill. Your language lives entirely
 in the files you write. What the engine does hold in English of its own is the fixed

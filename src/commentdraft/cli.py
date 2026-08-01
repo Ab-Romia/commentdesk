@@ -430,7 +430,10 @@ def _common(parser, out_default="out", out_help="output directory"):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="commentdraft",
-        description="Triage comments and draft replies. It never posts anything.",
+        description=(
+            "Triage comments and draft replies. Nothing is published that a person "
+            "has not approved, one reply at a time."
+        ),
     )
     subs = parser.add_subparsers(dest="command")
 

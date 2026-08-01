@@ -76,6 +76,12 @@ def test_readme_states_the_grep_checkable_guarantee(text):
     claim unkeepable and it was replaced rather than deleted: the load bearing
     half of it, that nothing reaches a platform a person did not approve, is what
     the README now promises and what tests/test_guarantees.py enforces.
+
+    The dare is also no longer an empty result. It used to grep for the send while
+    excluding approve.py and platforms/, which are the only two paths a send would
+    ever live in, so "returns nothing" was a sentence about where the send had
+    never been. It now greps for a marker comment sitting on the sending statement
+    itself, and the honest claim is that there is exactly one of them.
     """
     assert "Nothing is published that a person" in text
     assert "no `--yes`, no `--all`" in text
@@ -88,10 +94,14 @@ def test_readme_states_the_grep_checkable_guarantee(text):
     argv = shlex.split(match.group(1))
     assert argv[0] == "grep", f"expected the README's command to start with grep: {argv!r}"
     result = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, check=False)
-    assert result.stdout == "", f"the README's own grep command found something: {result.stdout}"
-    assert result.returncode == 1, (
-        f"expected the grep to match nothing (exit 1), got exit {result.returncode}: "
+    assert result.returncode == 0, (
+        f"expected the grep to match the one send (exit 0), got exit {result.returncode}: "
         f"{result.stderr}"
+    )
+    found = result.stdout.strip().splitlines()
+    assert len(found) == 1, f"the README's own grep found {len(found)} sends, not one: {found}"
+    assert found[0].startswith("src/commentdraft/approve.py:"), (
+        f"the one send is not in the approval gate: {found[0]}"
     )
 
 

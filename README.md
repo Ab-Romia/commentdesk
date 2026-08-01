@@ -24,7 +24,7 @@ Triage social-media comments from a CSV and draft grounded replies for a person 
   reason and the draft alongside the platform, the author and the model that produced
   it. Cost appears once per file, as a total the run actually billed, not per row: the
   per-row token counts and cost live in the CSV underneath the page, not in front of a
-  reviewer. You read it, edit elsewhere, and send by hand.
+  reviewer. You read it, edit what needs editing, and approve one reply at a time.
 
 ## Requirements
 
@@ -157,19 +157,34 @@ this tool talks to.
   granting any write scope anywhere.
 
   ```bash
-  grep -rn --include='*.py' --exclude=approve.py --exclude-dir=platforms 'publish_reply' src/
+  grep -rn --include='*.py' 'THE ONE SEND' src/
   ```
 
-  returns nothing. Everything that can put a reply on a platform is inside
-  `src/commentdraft/approve.py`, and the only other mention of it anywhere is the
-  interface declaration a connector implements.
-  `tests/test_guarantees.py::test_the_only_call_to_publish_reply_in_the_package_is_inside_the_gate`
-  runs the version of that check a grep cannot: it walks the AST of every module,
-  finds every call, and fails the build if there is more than one or if the one is
-  somewhere else. The tests beside it assert that the call sits inside a branch an
-  explicit keystroke reaches, that the function cannot be handed out as a value and
-  called elsewhere, that the prompt has no default action, and that no config key
-  and no CLI flag shaped like an approval bypass exists anywhere in the package.
+  returns exactly one line, on the statement that hands a reply to a connector,
+  inside `_send_approved` in `src/commentdraft/approve.py`. The marker is the anchor
+  rather than the filename on purpose: the version of this claim that read
+  `--exclude=approve.py --exclude-dir=platforms` excluded the only two paths a send
+  would ever live in, so it proved the send was not somewhere it had never been.
+  `tests/test_guarantees.py::test_the_send_marker_appears_once_in_the_package_and_sits_on_the_send`
+  asserts there is one and that it sits in that function.
+
+  `tests/test_guarantees.py::test_the_only_reference_to_publish_reply_in_the_package_is_the_call_inside_the_gate`
+  runs the version a grep cannot: it walks the AST of every module and fails the build
+  if the send is named anywhere else, or named without being called, which is how
+  `post = platform.publish_reply` would otherwise carry it into a loop. The tests
+  beside it assert that every send sits inside a branch reached by a value that came
+  out of the prompt itself, that no loop sits between that keystroke and the send,
+  that the prompt has no default action and no conditional expression standing in for
+  one, and that the config vocabulary is a frozen allowlist, so a key of any name that
+  could stand in for a keystroke fails the build until somebody writes it down.
+
+  Two properties are worth naming because they are what "approved" has to mean.
+  The keystroke is read from the terminal after its input queue is discarded, so
+  keys typed or pasted before a reply was on the screen approve nothing:
+  `tests/test_typeahead.py` drives the real gate under a pty and asserts it. And the
+  text shown to the reviewer and the text sent to the platform are one string rather
+  than two that agree, so a reply cannot hide half of itself behind an escape
+  sequence on the way past a reader.
 
   This replaces an older claim that no HTTP client existed anywhere. That was true,
   checkable, and about to stop being either. It was doing two jobs, and only one of
@@ -208,10 +223,13 @@ this tool talks to.
 
 ## What this does, and what it does not do
 
-commentdraft drafts. It does not send, schedule, queue, or hold a credential for
-anywhere a draft could be sent. Every draft leaves this tool as a row in a CSV and a
-card on an HTML page, and the only way one reaches an audience is a person reading it
-and choosing to send it.
+commentdraft drafts, and publishes nothing that a person has not approved, one reply
+at a time. Every draft leaves this tool as a row in a CSV and a card on an HTML page,
+and the only way one reaches an audience is a person reading that specific reply and
+pressing a key to send that specific reply. There is no batch, no queue and no
+schedule: publishing thirty replies costs thirty keystrokes, which is the design and
+not an oversight. `tests/test_guarantees.py::test_every_send_sits_inside_a_branch_an_explicit_keystroke_reaches`
+fails the build on any arrangement that weakens it.
 
 That person is responsible for what they send. The tool has no view on whether a draft
 is accurate, appropriate, or permitted where they are about to publish it, and it is
@@ -300,7 +318,7 @@ a real price and a real audience, and a public reply that quoted the wrong price
 invented a claim was a cost that landed on them, not on the tool. That is the entire
 explanation for the parts of this design that look over-careful: the review page, the
 disclosure line that is required and has no evasive setting, the refusal to answer
-outside the source document, and the missing posting path.
+outside the source document, and a posting path that costs one keystroke per reply.
 
 The client-specific parts are gone. The product, the language, the source document and
 the platform credentials all stayed behind, and nothing here was copied forward from
@@ -310,8 +328,8 @@ useful part.
 ## Contributing
 
 Read `CONTRIBUTING.md`. In short: tests first, no non-ASCII string literals under
-`src/`, no posting path, and no dash typography in prose. `make check` runs what CI
-runs.
+`src/`, no posting path that is not gated behind a keystroke per reply, and no dash
+typography in prose. `make check` runs what CI runs.
 
 ## License
 

@@ -87,8 +87,12 @@ decorator, deterministic output, and no network access from inside the handler.
 
 ## Things that will be declined
 
-- Anything that posts, queues, schedules, or authenticates against a platform, for
-  the reason given above.
+- Anything that posts without a person approving that specific reply immediately
+  before it goes: a queue, a schedule, a batch approval, an `approved` column, a
+  `--yes` flag, or a config key of any name that stands in for the keystroke. A
+  connector that authenticates against a platform and publishes through the gate is
+  welcome; a route around the gate is the one thing this project is built to refuse,
+  for the reason given above.
 - Retrieval, chunking, or a vector store. `docs/architecture.md` explains the
   decision and the one condition under which it would change, and that condition is a
   different project from this one.

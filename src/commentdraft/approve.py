@@ -402,6 +402,12 @@ def _send_approved(
     platform returned. A line written before the call would claim a post that may
     never have happened, which is worse than no record at all.
     """
+    # THE ONE SEND. Every reply that reaches a platform leaves this package on the
+    # next line and on no other. README.md anchors its grep on this marker rather
+    # than on a filename, because a grep written as "not in approve.py, not in
+    # platforms/" excludes the two places a send would ever live and proves only
+    # that it is not somewhere it has never been. A marker moves with the code.
+    # tests/test_guarantees.py asserts there is exactly one of these, here.
     try:
         published_id = platform.publish_reply(cfg, approval.parent_id, approval.text)
     except Exception as exc:  # noqa: BLE001 - a connector may raise anything; one row must not lose the queue

@@ -392,7 +392,7 @@ def test_a_new_operator_visible_string_constant_cannot_hide_from_the_limits_list
 def test_community_files_exist_and_state_the_hard_rules():
     contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     # These four are the rules a well-meaning pull request breaks by accident.
-    for rule in ("non-ascii", "no posting path", "data_collection", "em dash"):
+    for rule in ("non-ascii", "no posting path that is not gated", "data_collection", "em dash"):
         assert rule in contributing.lower(), f"CONTRIBUTING.md omits: {rule}"
     assert "make check" in contributing
 
