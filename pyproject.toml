@@ -93,4 +93,8 @@ skip = "./.git,./out,./.venv,./uv.lock,./docs/img,./notes,*.csv"
 # caf: half of "cafe", built with chr() in a test so that file stays ascii itself.
 # responde: Spanish, in a worked example that demonstrates a non-English reply.
 # notin: ast.NotIn, the node class for `x not in y`, named in a guarantee test.
-ignore-words-list = "nd,ba,unparseable,summar,integrat,caf,responde,notin"
+# acount: Meta's typo, inside a quotation of Meta's own reference page in
+#   docs/platforms/instagram.md, disclosed at the quote and reproduced as read. A
+#   spell checker does not get to edit a primary source any more than the
+#   forbidden-claims lint does.
+ignore-words-list = "nd,ba,unparseable,summar,integrat,caf,responde,notin,acount"
