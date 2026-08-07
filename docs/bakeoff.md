@@ -138,7 +138,7 @@ commentdraft bakeoff --config examples/field-guide-book/config.toml \
 Thirty comments in the file, twenty-nine billed calls. One comment is empty, and an
 empty comment is decided locally as `skip` with no call and no cost, so it counts in
 the decisions and in neither the cache nor the cost figures. The cached prefix measured
-4,162 tokens.
+4,112 tokens.
 
 The totals, the cache lines and the decision counts below were read out of the run
 report each model printed. The per-call column is the only derived figure on the page:
@@ -167,7 +167,7 @@ Its input rate is 8.6 times the default's and its output rate 7.9 times, so the
 published rates on their own predict a gap somewhere near 8, not near 27. The rest of
 the gap is the prompt cache.
 
-The prefix dominates the bill on every call here: 4,162 tokens of rendered voice rules,
+The prefix dominates the bill on every call here: 4,112 tokens of rendered voice rules,
 worked examples, output contract and the whole knowledge document, against a user
 message holding one comment and a reply of a sentence or two. `primary` billed that
 prefix at the cached rate of 0.006 on 28 of its 29 calls. `cheap` and `small` billed it
@@ -178,7 +178,7 @@ assertion. The prefix is assembled once and kept byte-identical across a run
 specifically so a provider can serve it from cache, and on this run that property was
 worth more than the difference in sticker price between these three routes. One piece
 of arithmetic on the same two rates, offered as arithmetic and not as a second
-measurement: 4,162 tokens billed at 0.03 rather than 0.006 is about $0.0001 more per
+measurement: 4,112 tokens billed at 0.03 rather than 0.006 is about $0.0001 more per
 call, so this run priced entirely uncached at `primary`'s own published input rate
 would have cost roughly three times what it did. Three is larger than the 2.5 between
 `primary`'s input rate and `small`'s.
@@ -204,17 +204,18 @@ rate exceeded the number and the run finished exactly as it would have otherwise
 holds the rate down is the rule in the voice file, and `docs/limits.md` covers what the
 substring test behind that number can and cannot see.
 
-`primary`'s report carried both repetition flags as well:
+`primary`'s report carried three repetition flags as well:
 
 ```
-repetition: closing 'https://example.com/field-guide' repeats in rows 1, 2, 3, 4, 7, 9, 22, 23, 24, 25, 26, 28, 30
+repetition: opening '$18' repeats in rows 2, 23, 24
 repetition: opening 'It' repeats in rows 4, 7, 22, 25, 26, 28
+repetition: closing 'https://example.com/field-guide' repeats in rows 1, 2, 3, 4, 7, 9, 22, 23, 24, 25, 26, 28, 30
 ```
 
 Thirteen of its sixteen replies ended on the same pointer, and six of them opened on
-the same word. The plug line and the closing line report 13 for one reason: the
-configured plug marker is that same URL, so both are counting the same behavior from
-two sides.
+the same word, with three more opening on the price. The plug line and the closing
+line report 13 for one reason: the configured plug marker is that same URL, so both
+are counting the same behavior from two sides.
 
 This is the limit `docs/limits.md` states under "Repetition can be reported but not
 prevented", and it is structural rather than a tuning problem. Each comment is answered
@@ -249,12 +250,18 @@ scoring it. The next section is that pass.
 
 ### The blind scoring pass, 2026-08-01
 
-One scorer, the author of this repository. One pass over the blind page the command
-above produces. The ranking that came out of it: `primary` first, `cheap` second,
-`small` third.
+One scorer, the author of this repository. One pass over the page the command above
+produces, which at the time was printing a cost total per source and so was not blind
+at all. Everything in this section is a sighted judgment, for the reason set out at the
+end of it. The ranking that came out of it: `primary` first, `cheap` second, `small`
+third.
 
 `primary` and `cheap` were judged indistinguishable on reply quality across all thirty
-comments. Nothing in this pass separates them.
+comments. One row separates them. Row 22 is a Polish comment. `cheap` answered it in
+Polish and so did `small`; `primary` answered it in English, against the voice file's
+first rule. That is a rule compliance failure by the source this pass ranked first, one
+of the five dimensions the method above asks a scorer to score, and it is the mirror of
+the finding against `small` in the next paragraph.
 
 `small` was ranked below both for one specific reason, on one row. Row 8 is the comment
 "Do you ship to Canada and how long does it take?". `primary` and `cheap` both
@@ -280,9 +287,17 @@ page was printing per source at the time. It should not have been: cost identifi
 source, the totals for these three are published further up this page, and the whole
 point of the blind page is that the scorer does not know which source is which. That
 was a defect in the page and it is fixed, which is why the section on running a
-bake-off now says a blind page prints no cost. So the quality result from this pass is
-two tied and one below them. The ordering inside the tie is a cost decision made after
-the fact, written down here as one, and it is not a quality ranking.
+bake-off now says a blind page prints no cost.
+
+That has a wider consequence than the tie-break, and quarantining it there would be the
+comfortable reading. The cost line sat on the page for the whole pass, not only at the
+moment the tie was broken, so the sources were identifiable from the first row onward.
+This pass was not blind. The ordering inside the tie is a cost decision made after the
+fact, written down here as one, and it is not a quality ranking; and the result
+underneath it, two tied and one below them, is a sighted judgment by the author of this
+repository about his own default route, which is the caveat it carries wherever it is
+quoted. Running the pass again on the page as it now renders is outstanding work, and
+until that happens this document contains no blind quality comparison.
 
 ### What the scoring pass does not establish
 
